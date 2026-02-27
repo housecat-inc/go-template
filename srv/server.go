@@ -17,13 +17,13 @@ import (
 
 	"srv.housecat.com/db"
 	"srv.housecat.com/db/dbgen"
-	"srv.housecat.com/srv/templates"
+	"srv.housecat.com/ui/pages"
 )
 
 type Server struct {
 	DB        *sql.DB
 	Hostname  string
-	StaticDir string
+	AssetsDir string
 }
 
 func New(dbPath, hostname string) (*Server, error) {
@@ -31,7 +31,7 @@ func New(dbPath, hostname string) (*Server, error) {
 	baseDir := filepath.Dir(thisFile)
 	srv := &Server{
 		Hostname:  hostname,
-		StaticDir: filepath.Join(baseDir, "static"),
+		AssetsDir: filepath.Join(baseDir, "..", "assets"),
 	}
 	if err := srv.setUpDatabase(dbPath); err != nil {
 		return nil, err
@@ -67,7 +67,8 @@ func (s *Server) HandleRoot(c echo.Context) error {
 		}
 	}
 
-	data := templates.PageData{
+	count = 5
+	data := pages.PageData{
 		Hostname:      s.Hostname,
 		Now:           now.Format(time.RFC3339),
 		UserEmail:     userEmail,
@@ -77,7 +78,7 @@ func (s *Server) HandleRoot(c echo.Context) error {
 		Headers:       buildHeaderEntries(r),
 	}
 
-	component := templates.Welcome(data)
+	component := pages.Welcome(data)
 	return component.Render(r.Context(), c.Response())
 }
 
@@ -123,28 +124,28 @@ func (s *Server) Serve(addr string) error {
 	e.HidePort = true
 
 	e.GET("/", s.HandleRoot)
-	e.Static("/static", s.StaticDir)
+	e.Static("/assets", s.AssetsDir)
 
 	slog.Info("starting server", "addr", addr)
 	return e.Start(addr)
 }
 
-func buildHeaderEntries(r *http.Request) []templates.HeaderEntry {
+func buildHeaderEntries(r *http.Request) []pages.HeaderEntry {
 	if r == nil {
 		return nil
 	}
 
-	headers := make([]templates.HeaderEntry, 0, len(r.Header)+1)
+	headers := make([]pages.HeaderEntry, 0, len(r.Header)+1)
 	for name, values := range r.Header {
 		lower := strings.ToLower(name)
-		headers = append(headers, templates.HeaderEntry{
+		headers = append(headers, pages.HeaderEntry{
 			Name:       name,
 			Values:     values,
 			AddedByExe: strings.HasPrefix(lower, "x-exedev-") || strings.HasPrefix(lower, "x-forwarded-"),
 		})
 	}
 	if r.Host != "" {
-		headers = append(headers, templates.HeaderEntry{
+		headers = append(headers, pages.HeaderEntry{
 			Name:   "Host",
 			Values: []string{r.Host},
 		})

@@ -1,14 +1,15 @@
-package templates
+package pages
 
 import (
 	"fmt"
 	"strings"
 
-	"srv.housecat.com/components/badge"
-	"srv.housecat.com/components/button"
-	"srv.housecat.com/components/card"
-	"srv.housecat.com/components/separator"
-	"srv.housecat.com/components/table"
+	"srv.housecat.com/ui/components/badge"
+	"srv.housecat.com/ui/components/button"
+	"srv.housecat.com/ui/components/card"
+	"srv.housecat.com/ui/components/separator"
+	"srv.housecat.com/ui/components/table"
+	"srv.housecat.com/ui/layouts"
 )
 
 type PageData struct {
@@ -28,13 +29,22 @@ type HeaderEntry struct {
 }
 
 templ Welcome(data PageData) {
-	@Layout(data.Hostname) {
+	@layouts.Layout(data.Hostname) {
 		<div class="space-y-8">
 			<h1 class="text-4xl font-bold tracking-tight">Go Template Project</h1>
 			<p class="text-muted-foreground">
 				This is a starter template for building Go web applications on exe.dev.
 				This VM has a persistent disk, sudo, HTTPS, and SSH all wired up.
 			</p>
+			if data.ActivityCount > 0 {
+				<p class="text-sm text-muted-foreground">
+					You have
+					@badge.Badge() {
+						{ fmt.Sprintf("%d", data.ActivityCount) }
+					}
+					activities.
+				</p>
+			}
 			<section>
 				<h2 class="text-2xl font-semibold tracking-tight mb-4">What next?</h2>
 				<div class="grid gap-4 sm:grid-cols-2">
@@ -199,15 +209,6 @@ templ Welcome(data PageData) {
 						}
 					}
 				</section>
-			}
-			if data.ActivityCount > 0 {
-				<p class="text-sm text-muted-foreground">
-					You have
-					@badge.Badge() {
-						{ fmt.Sprintf("%d", data.ActivityCount) }
-					}
-					activities.
-				</p>
 			}
 		</div>
 	}

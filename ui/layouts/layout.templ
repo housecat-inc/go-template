@@ -1,10 +1,10 @@
-package templates
+package layouts
 
 import (
-	"srv.housecat.com/components/button"
-	"srv.housecat.com/components/dialog"
-	"srv.housecat.com/components/icon"
-	"srv.housecat.com/components/sheet"
+	"srv.housecat.com/ui/components/button"
+	"srv.housecat.com/ui/components/dialog"
+	"srv.housecat.com/ui/components/icon"
+	"srv.housecat.com/ui/components/sheet"
 )
 
 templ Layout(title string) {
@@ -14,7 +14,7 @@ templ Layout(title string) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>{ title }</title>
-			<link rel="stylesheet" href="/static/style.css"/>
+			<link rel="stylesheet" href="/assets/css/output.css"/>
 		</head>
 		<body class="bg-background text-foreground min-h-screen">
 			@dialog.Script()

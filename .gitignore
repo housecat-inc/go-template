@@ -1,3 +1,4 @@
 db.*
 /bin/
 *_templ.go
+output.css

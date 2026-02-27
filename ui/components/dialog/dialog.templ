@@ -4,8 +4,8 @@ package dialog
 
 import (
 	"context"
-	"srv.housecat.com/components/icon"
-	"srv.housecat.com/utils"
+	"srv.housecat.com/ui/components/icon"
+	"srv.housecat.com/ui/utils"
 )
 
 type contextKey string
@@ -328,5 +328,5 @@ templ Description(props ...DescriptionProps) {
 }
 
 templ Script() {
-	<script defer nonce={ templ.GetNonce(ctx) } src={ utils.ScriptURL("/static/dialog.min.js") }></script>
+	<script defer nonce={ templ.GetNonce(ctx) } src={ utils.ScriptURL("/assets/js/dialog.min.js") }></script>
 }

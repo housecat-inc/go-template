@@ -1,14 +1,18 @@
 # Go Shelley Template
 
-This is a starter template for building Go web applications on exe.dev. It demonstrates end-to-end usage including HTTP handlers, authentication, database integration, and deployment.
-
-Use this as a foundation to build your own service.
+This is a starter template for building Go web applications for Housecat. It demonstrates end-to-end usage including HTTP handlers, authentication, database integration, and deployment.
 
 ## Building and Running
 
-Build with `make build`, then run `./srv`. The server listens on port 8000 by default.
+Build with `make build`, then run `./bin/srv`. The server listens on port 8000 by default.
 
-## Running as a systemd service
+## Running on exe.dev
+
+Install dependencies:
+
+```bash
+curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.1/tailwindcss-linux-x64 && chmod +x tailwindcss-linux-x64 && sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss
+```
 
 To run the server as a systemd service:
 
@@ -51,11 +55,11 @@ This template uses sqlite (`db.sqlite3`). SQL queries are managed with sqlc.
 
 ## UI
 
-This template uses templ and [templui](https://templui.io/llms.txt)
+This template uses templ and templui. Run `go tool templ generate` to generate templates. Run `go tool templui` to list and install components. 
 
 ## Code layout
 
 - `cmd/srv`: main package (binary entrypoint)
 - `srv`: HTTP server logic (handlers)
-- `srv/templates`: Go HTML templates
+- `ui`: templ UI components
 - `db`: SQLite open + migrations (001-base.sql)
