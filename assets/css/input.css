@@ -100,6 +100,15 @@
 }
 
 @layer base {
+  div, p, h1, h2, h3, h4, h5, h6, section, article, nav, aside,
+  header, footer, main, ul, ol, form, fieldset, figure,
+  figcaption, details, blockquote, pre, address, dl, dd,
+  dialog, hgroup, search {
+    display: block;
+  }
+  li { display: list-item; }
+  summary { display: list-item; }
+  hr { display: block; }
   * {
     @apply border-border;
     scrollbar-width: thin;

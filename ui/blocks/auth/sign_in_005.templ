@@ -46,13 +46,6 @@ templ SignIn005(loginURL string, googleURL string) {
 					}
 					@card.Content() {
 						<div class="grid grid-cols-2 gap-3">
-							@button.Button(button.Props{
-								Variant: button.VariantOutline,
-								Href:    loginURL,
-							}) {
-								@icon.LogIn(icon.Props{Size: 20})
-								exe.dev
-							}
 							if googleURL != "" {
 								@button.Button(button.Props{
 									Variant: button.VariantOutline,
@@ -66,6 +59,13 @@ templ SignIn005(loginURL string, googleURL string) {
 									</svg>
 									Google
 								}
+							}
+							@button.Button(button.Props{
+								Variant: button.VariantOutline,
+								Href:    loginURL,
+							}) {
+								@icon.LogIn(icon.Props{Size: 20})
+								exe.dev
 							}
 						</div>
 						@separator.Separator(separator.Props{
