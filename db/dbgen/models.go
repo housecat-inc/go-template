@@ -8,15 +8,11 @@ import (
 	"time"
 )
 
-type Migration struct {
-	MigrationNumber int64     `json:"migration_number"`
-	MigrationName   string    `json:"migration_name"`
-	ExecutedAt      time.Time `json:"executed_at"`
-}
-
-type Visitor struct {
-	ID        string    `json:"id"`
-	ViewCount int64     `json:"view_count"`
+type Activity struct {
+	ID        int64     `json:"id"`
+	ActorID   string    `json:"actor_id"`
+	ActorType string    `json:"actor_type"`
+	Action    string    `json:"action"`
+	Metadata  *string   `json:"metadata"`
 	CreatedAt time.Time `json:"created_at"`
-	LastSeen  time.Time `json:"last_seen"`
 }

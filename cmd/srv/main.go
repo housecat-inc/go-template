@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"srv.exe.dev/srv"
+	"srv.housecat.com/srv"
 )
 
 var flagListenAddr = flag.String("listen", ":8000", "address to listen on")
