@@ -29,7 +29,7 @@ type HeaderEntry struct {
 
 templ Welcome(data PageData) {
 	@Layout(data.Hostname) {
-		<main class="container mx-auto max-w-3xl py-12 px-4 space-y-8">
+		<div class="space-y-8">
 			<h1 class="text-4xl font-bold tracking-tight">Go Template Project</h1>
 			<p class="text-muted-foreground">
 				This is a starter template for building Go web applications on exe.dev.
@@ -166,10 +166,10 @@ templ Welcome(data PageData) {
 							don't have to build auth.
 						</p>
 					</div>
-					@table.Table() {
+					@table.Table(table.Props{Class: "table-fixed border rounded-md overflow-hidden"}) {
 						@table.Header() {
 							@table.Row() {
-								@table.Head() {
+								@table.Head(table.HeadProps{Class: "w-48"}) {
 									Header
 								}
 								@table.Head() {
@@ -180,7 +180,7 @@ templ Welcome(data PageData) {
 						@table.Body() {
 							for _, h := range data.Headers {
 								@table.Row() {
-									@table.Cell() {
+									@table.Cell(table.CellProps{Class: "align-top font-medium whitespace-nowrap"}) {
 										<code class="text-sm">{ h.Name }</code>
 										if h.AddedByExe {
 											@badge.Badge(badge.Props{
@@ -191,7 +191,7 @@ templ Welcome(data PageData) {
 											}
 										}
 									}
-									@table.Cell() {
+									@table.Cell(table.CellProps{Class: "break-all"}) {
 										<code class="text-sm">{ strings.Join(h.Values, ", ") }</code>
 									}
 								}
@@ -209,6 +209,6 @@ templ Welcome(data PageData) {
 					activities.
 				</p>
 			}
-		</main>
+		</div>
 	}
 }

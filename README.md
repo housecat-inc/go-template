@@ -49,6 +49,10 @@ When proxied through exed, requests will include `X-ExeDev-UserID` and
 
 This template uses sqlite (`db.sqlite3`). SQL queries are managed with sqlc.
 
+## UI
+
+This template uses templ and [templui](https://templui.io/llms.txt)
+
 ## Code layout
 
 - `cmd/srv`: main package (binary entrypoint)
