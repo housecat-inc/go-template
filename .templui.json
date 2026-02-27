@@ -1,0 +1,7 @@
+{
+  "componentsDir": "components",
+  "utilsDir": "utils",
+  "moduleName": "srv.housecat.com",
+  "jsDir": "srv/static",
+  "jsPublicPath": "/static"
+}

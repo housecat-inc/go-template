@@ -1,1 +1,3 @@
-/srv
+db.*
+/bin/
+*_templ.go

@@ -3,7 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"time"
+
+	"github.com/lmittmann/tint"
 
 	"srv.housecat.com/srv"
 )
@@ -11,6 +15,10 @@ import (
 var flagListenAddr = flag.String("listen", ":8000", "address to listen on")
 
 func main() {
+	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{
+		TimeFormat: time.Kitchen,
+	})))
+
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
