@@ -7,13 +7,20 @@ import (
 	"srv.housecat.com/ui/components/sheet"
 )
 
-templ Layout(title string) {
+type NavData struct {
+	Title     string
+	UserEmail string
+	LoginURL  string
+	LogoutURL string
+}
+
+templ Layout(nav NavData) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-			<title>{ title }</title>
+			<title>{ nav.Title }</title>
 			<link rel="stylesheet" href="/assets/css/output.css"/>
 		</head>
 		<body class="bg-background text-foreground min-h-screen">
@@ -37,7 +44,32 @@ templ Layout(title string) {
 										}
 									}
 								</div>
-								<span class="font-semibold text-lg">{ title }</span>
+								<span class="font-semibold text-lg">{ nav.Title }</span>
+							</div>
+							<div class="flex items-center gap-2">
+								if nav.UserEmail != "" {
+									<span class="text-sm text-muted-foreground hidden sm:inline">
+										Signed in as <strong class="text-foreground">{ nav.UserEmail }</strong>
+									</span>
+									<form method="POST" action={ templ.SafeURL(nav.LogoutURL) }>
+										@button.Button(button.Props{
+											Variant: button.VariantGhost,
+											Size:    button.SizeSm,
+											Type:    button.TypeSubmit,
+										}) {
+											Logout
+										}
+									</form>
+								} else {
+									<span class="text-sm text-muted-foreground hidden sm:inline">Not signed in</span>
+									@button.Button(button.Props{
+										Variant: button.VariantGhost,
+										Size:    button.SizeSm,
+										Href:    nav.LoginURL,
+									}) {
+										Login
+									}
+								}
 							</div>
 						</div>
 					</header>

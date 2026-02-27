@@ -7,7 +7,6 @@ import (
 	"srv.housecat.com/ui/components/badge"
 	"srv.housecat.com/ui/components/button"
 	"srv.housecat.com/ui/components/card"
-	"srv.housecat.com/ui/components/separator"
 	"srv.housecat.com/ui/components/table"
 	"srv.housecat.com/ui/layouts"
 )
@@ -29,7 +28,12 @@ type HeaderEntry struct {
 }
 
 templ Welcome(data PageData) {
-	@layouts.Layout(data.Hostname) {
+	@layouts.Layout(layouts.NavData{
+		Title:     data.Hostname,
+		UserEmail: data.UserEmail,
+		LoginURL:  data.LoginURL,
+		LogoutURL: data.LogoutURL,
+	}) {
 		<div class="space-y-8">
 			<h1 class="text-4xl font-bold tracking-tight">Go Template Project</h1>
 			<p class="text-muted-foreground">
@@ -137,36 +141,7 @@ templ Welcome(data PageData) {
 					exe.dev
 				}
 			</div>
-			@separator.Separator()
-			<div class="flex items-center justify-between">
-				<p class="text-sm text-muted-foreground">
-					if data.UserEmail != "" {
-						Signed in as <strong class="text-foreground">{ data.UserEmail }</strong>
-					} else {
-						Not signed in
-					}
-				</p>
-				if data.UserEmail != "" {
-					<form method="POST" action={ templ.SafeURL(data.LogoutURL) }>
-						@button.Button(button.Props{
-							Variant: button.VariantGhost,
-							Size:    button.SizeSm,
-							Type:    button.TypeSubmit,
-						}) {
-							Logout
-						}
-					</form>
-				} else {
-					@button.Button(button.Props{
-						Variant: button.VariantGhost,
-						Size:    button.SizeSm,
-						Href:    data.LoginURL,
-					}) {
-						Login
-					}
-				}
-			</div>
-			if len(data.Headers) > 0 {
+				if len(data.Headers) > 0 {
 				<section class="space-y-4">
 					<div>
 						<h2 class="text-2xl font-semibold tracking-tight">HTTP headers from exe.dev</h2>
@@ -179,7 +154,7 @@ templ Welcome(data PageData) {
 					@table.Table(table.Props{Class: "table-fixed border rounded-md overflow-hidden"}) {
 						@table.Header() {
 							@table.Row() {
-								@table.Head(table.HeadProps{Class: "w-48"}) {
+								@table.Head(table.HeadProps{Class: "w-64"}) {
 									Header
 								}
 								@table.Head() {
@@ -190,16 +165,17 @@ templ Welcome(data PageData) {
 						@table.Body() {
 							for _, h := range data.Headers {
 								@table.Row() {
-									@table.Cell(table.CellProps{Class: "align-top font-medium whitespace-nowrap"}) {
-										<code class="text-sm">{ h.Name }</code>
-										if h.AddedByExe {
-											@badge.Badge(badge.Props{
-												Variant: badge.VariantSecondary,
-												Class:   "ml-2",
-											}) {
-												exe.dev
+									@table.Cell(table.CellProps{Class: "align-top font-medium"}) {
+										<div class="flex flex-wrap items-center gap-1">
+											<code class="text-sm whitespace-nowrap">{ h.Name }</code>
+											if h.AddedByExe {
+												@badge.Badge(badge.Props{
+													Variant: badge.VariantSecondary,
+												}) {
+													exe.dev
+												}
 											}
-										}
+										</div>
 									}
 									@table.Cell(table.CellProps{Class: "break-all"}) {
 										<code class="text-sm">{ strings.Join(h.Values, ", ") }</code>

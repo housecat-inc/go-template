@@ -17,6 +17,7 @@ import (
 
 	"srv.housecat.com/db"
 	"srv.housecat.com/db/dbgen"
+	"srv.housecat.com/ui/blocks/auth"
 	"srv.housecat.com/ui/pages"
 )
 
@@ -43,10 +44,16 @@ func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
 	userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
 	userEmail := strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
+
+	if userID == "" {
+		component := auth.SignInPage(loginURLForRequest(r))
+		return component.Render(r.Context(), c.Response())
+	}
+
 	now := time.Now()
 
 	var count int64
-	if userID != "" && s.DB != nil {
+	if s.DB != nil {
 		q := dbgen.New(s.DB)
 		if r.Method == "GET" {
 			err := q.InsertActivity(r.Context(), dbgen.InsertActivityParams{
@@ -67,7 +74,6 @@ func (s *Server) HandleRoot(c echo.Context) error {
 		}
 	}
 
-	count = 5
 	data := pages.PageData{
 		Hostname:      s.Hostname,
 		Now:           now.Format(time.RFC3339),

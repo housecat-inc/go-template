@@ -49,6 +49,12 @@ that this template uses.
 When proxied through exed, requests will include `X-ExeDev-UserID` and
 `X-ExeDev-Email` if the user is authenticated via exe.dev.
 
+To make public
+
+```bash
+ssh exe.dev share set-public daemon-juliet
+```
+
 ## Database
 
 This template uses sqlite (`db.sqlite3`). SQL queries are managed with sqlc.
