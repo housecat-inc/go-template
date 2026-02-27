@@ -30,7 +30,17 @@ func run() error {
 	if err != nil {
 		hostname = "unknown"
 	}
-	server, err := srv.New("db.sqlite3", hostname)
+	oauthCfg := srv.OAuthConfig{
+		ClientID:      os.Getenv("HOUSECAT_CLIENT_ID"),
+		ClientSecret:  os.Getenv("HOUSECAT_CLIENT_SECRET"),
+		SessionSecret: os.Getenv("SESSION_SECRET"),
+		Issuer:        os.Getenv("OAUTH_ISSUER"),
+	}
+	if oauthCfg.Issuer == "" && oauthCfg.ClientID != "" {
+		oauthCfg.Issuer = "https://auth.housecat.com"
+	}
+
+	server, err := srv.New("db.sqlite3", hostname, oauthCfg)
 	if err != nil {
 		return fmt.Errorf("create server: %w", err)
 	}

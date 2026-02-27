@@ -19,12 +19,14 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cli/browser v1.3.0 // indirect
+	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/cubicdaiya/gonp v1.0.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-sql-driver/mysql v1.9.3 // indirect
 	github.com/google/cel-go v0.26.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -65,6 +67,7 @@ require (
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
+	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

@@ -55,6 +55,23 @@ To make public
 ssh exe.dev share set-public daemon-juliet
 ```
 
+## Google OAuth Setup
+
+To enable Google sign-in via auth.housecat.com:
+
+1. Go to https://auth.housecat.com and register a new app
+   - Set the callback URL to `https://<hostname>.exe.xyz/auth/callback`
+2. SSH to the VM and create `/home/exedev/.env`:
+   ```
+   HOUSECAT_CLIENT_ID=<from step 1>
+   HOUSECAT_CLIENT_SECRET=<from step 1>
+   SESSION_SECRET=$(openssl rand -hex 32)
+   ```
+3. Restart: `sudo systemctl daemon-reload && sudo systemctl restart srv`
+
+The server will skip OIDC setup if `HOUSECAT_CLIENT_ID` is not set, so Google
+sign-in is optional.
+
 ## Database
 
 This template uses sqlite (`db.sqlite3`). SQL queries are managed with sqlc.

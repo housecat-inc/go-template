@@ -15,7 +15,7 @@ func TestServerSetupAndHandlers(t *testing.T) {
 	tempDB := filepath.Join(t.TempDir(), "test_server.sqlite3")
 	t.Cleanup(func() { os.Remove(tempDB) })
 
-	server, err := New(tempDB, "test-hostname")
+	server, err := New(tempDB, "test-hostname", OAuthConfig{})
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
@@ -32,17 +32,11 @@ func TestServerSetupAndHandlers(t *testing.T) {
 		}
 
 		body := w.Body.String()
-		if !strings.Contains(body, "test-hostname") {
-			t.Errorf("expected page to show hostname")
+		if !strings.Contains(body, "Sign in") {
+			t.Errorf("expected sign-in page for unauthenticated users")
 		}
-		if !strings.Contains(body, "Go Template Project") {
-			t.Errorf("expected page to contain headline")
-		}
-		if strings.Contains(body, "Signed in as") {
-			t.Errorf("expected page to not be logged in")
-		}
-		if !strings.Contains(body, "Not signed in") {
-			t.Errorf("expected page to show 'Not signed in'")
+		if !strings.Contains(body, "exe.dev") {
+			t.Errorf("expected exe.dev login button")
 		}
 	})
 
