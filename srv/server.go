@@ -81,6 +81,7 @@ func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
 	userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
 	userEmail := strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
+	logoutURL := "/__exe.dev/logout"
 
 	// Check session cookie if no exe.dev headers
 	if userID == "" && s.DB != nil {
@@ -90,6 +91,7 @@ func (s *Server) HandleRoot(c echo.Context) error {
 			if err == nil {
 				userID = session.UserID
 				userEmail = session.Email
+				logoutURL = "/auth/logout"
 			}
 		}
 	}
@@ -133,7 +135,7 @@ func (s *Server) HandleRoot(c echo.Context) error {
 		UserEmail:     userEmail,
 		ActivityCount: count,
 		LoginURL:      loginURLForRequest(r),
-		LogoutURL:     "/__exe.dev/logout",
+		LogoutURL:     logoutURL,
 		Headers:       buildHeaderEntries(r),
 	}
 
