@@ -7,7 +7,6 @@ import (
 
 	"srv.housecat.com/db/dbgen"
 	"srv.housecat.com/ui/components/button"
-	"srv.housecat.com/ui/components/dropdown"
 	"srv.housecat.com/ui/components/icon"
 	"srv.housecat.com/ui/components/input"
 	"srv.housecat.com/ui/layouts"
@@ -162,49 +161,23 @@ templ chatConversationGroup(g chatGroup, activeChatID string) {
 }
 
 templ chatConversationItem(chat dbgen.Chat, activeChatID string) {
-	<div class="group relative">
+	<div class="group relative flex items-center">
 		<a
 			href={ templ.SafeURL(fmt.Sprintf("/chat?id=%s", chat.ID)) }
-			class={ "w-full block text-left px-3 py-2 rounded-lg transition-colors",
+			class={ "flex-1 min-w-0 block text-left px-3 py-2 rounded-lg transition-colors",
 				templ.KV("bg-background", chat.ID == activeChatID),
 				templ.KV("hover:bg-background", chat.ID != activeChatID) }
 		>
-			<div class="flex items-start justify-between gap-2">
-				<div class="flex-1 min-w-0">
-					<p class="text-sm font-medium truncate">{ chat.Title }</p>
-					<span class="text-xs text-muted-foreground">{ chatTimeAgo(chat.UpdatedAt) }</span>
-				</div>
-			</div>
+			<p class="text-sm font-medium truncate">{ chat.Title }</p>
+			<span class="text-xs text-muted-foreground">{ chatTimeAgo(chat.UpdatedAt) }</span>
 		</a>
-		<div class="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
-			@dropdown.Dropdown() {
-				@dropdown.Trigger() {
-					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "h-7 w-7"}) {
-						@icon.MessageCircleMore(icon.Props{Size: 14})
-					}
-				}
-				@dropdown.Content(dropdown.ContentProps{Class: "w-40"}) {
-					@dropdown.Item() {
-						@icon.Pencil(icon.Props{Size: 14, Class: "mr-2"})
-						Rename
-					}
-					@dropdown.Item() {
-						@icon.Share(icon.Props{Size: 14, Class: "mr-2"})
-						Share
-					}
-					@dropdown.Separator()
-					@dropdown.Item(dropdown.ItemProps{
-						Attributes: templ.Attributes{
-							"data-on:click": fmt.Sprintf("@delete('/api/chat/%s')", chat.ID),
-						},
-						Class: "text-destructive focus:text-destructive",
-					}) {
-						@icon.Trash2(icon.Props{Size: 14, Class: "mr-2"})
-						Delete
-					}
-				}
-			}
-		</div>
+		<button
+			class="shrink-0 p-1 mr-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+			data-on:click={ fmt.Sprintf("@delete('/api/chat/%s')", chat.ID) }
+			title="Delete chat"
+		>
+			@icon.Trash2(icon.Props{Size: 14})
+		</button>
 	</div>
 }
 
