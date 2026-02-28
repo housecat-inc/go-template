@@ -3,7 +3,9 @@ package layouts
 import (
 	"srv.housecat.com/ui/components/button"
 	"srv.housecat.com/ui/components/dialog"
+	"srv.housecat.com/ui/components/dropdown"
 	"srv.housecat.com/ui/components/icon"
+	"srv.housecat.com/ui/components/popover"
 	"srv.housecat.com/ui/components/sheet"
 )
 
@@ -25,6 +27,8 @@ templ Layout(nav NavData) {
 		</head>
 		<body class="bg-background text-foreground min-h-screen">
 			@dialog.Script()
+			@popover.Script()
+			@dropdown.Script()
 			@sheet.Sheet(sheet.Props{
 				Side: sheet.SideLeft,
 			}) {
