@@ -1,0 +1,191 @@
+package pages
+
+import (
+	"fmt"
+	"strings"
+
+	"srv.housecat.com/ui/components/badge"
+	"srv.housecat.com/ui/components/button"
+	"srv.housecat.com/ui/components/card"
+	"srv.housecat.com/ui/components/table"
+	"srv.housecat.com/ui/layouts"
+)
+
+type PageData struct {
+	ActivityCount int64
+	Headers       []HeaderEntry
+	Hostname      string
+	LoginURL      string
+	LogoutURL     string
+	Now           string
+	UserEmail     string
+}
+
+type HeaderEntry struct {
+	Name       string
+	Values     []string
+	AddedByExe bool
+}
+
+templ Home(data PageData) {
+	@layouts.Layout(layouts.NavData{
+		Title:     data.Hostname,
+		UserEmail: data.UserEmail,
+		LoginURL:  data.LoginURL,
+		LogoutURL: data.LogoutURL,
+	}) {
+		<div class="space-y-8">
+			<h1 class="text-4xl font-bold tracking-tight">Go Template Project</h1>
+			<p class="text-muted-foreground">
+				This is a starter template for building Go web applications on exe.dev.
+				This VM has a persistent disk, sudo, HTTPS, and SSH all wired up.
+			</p>
+			if data.ActivityCount > 0 {
+				<p class="text-sm text-muted-foreground">
+					You have
+					@badge.Badge() {
+						{ fmt.Sprintf("%d", data.ActivityCount) }
+					}
+					activities.
+				</p>
+			}
+			<section>
+				<h2 class="text-2xl font-semibold tracking-tight mb-4">What next?</h2>
+				<div class="grid gap-4 sm:grid-cols-2">
+					@card.Card() {
+						@card.Header() {
+							@card.Title() {
+								Customize this template
+							}
+							@card.Description() {
+								Edit the code to build your application.
+							}
+						}
+						@card.Content() {
+							<ul class="list-disc pl-4 space-y-1 text-sm text-muted-foreground">
+								<li>
+									Source code is in <code class="text-foreground bg-muted px-1 rounded text-xs">~</code>
+								</li>
+								<li>
+									Edit via SSH or
+									<a
+										href={ templ.SafeURL(fmt.Sprintf("vscode://vscode-remote/ssh-remote+%s.exe.xyz/home/exedev?windowId=_blank", data.Hostname)) }
+										class="underline underline-offset-4 hover:text-foreground"
+									>open in VS Code</a>
+								</li>
+								<li>
+									Chat with our coding agent,
+									<a
+										href={ templ.SafeURL(fmt.Sprintf("https://%s.exe.xyz:9999", data.Hostname)) }
+										target="_blank"
+										class="underline underline-offset-4 hover:text-foreground"
+									>Shelley</a>
+								</li>
+								<li>
+									<code class="text-foreground bg-muted px-1 rounded text-xs">sudo systemctl restart srv</code> to pick up changes
+								</li>
+							</ul>
+						}
+					}
+					@card.Card() {
+						@card.Header() {
+							@card.Title() {
+								What's included
+							}
+							@card.Description() {
+								This template provides the essentials.
+							}
+						}
+						@card.Content() {
+							<ul class="list-disc pl-4 space-y-1 text-sm text-muted-foreground">
+								<li>HTTP server with routing and templates</li>
+								<li>SQLite database with migrations</li>
+								<li>Authentication via exe.dev headers</li>
+								<li>Systemd service configuration</li>
+							</ul>
+						}
+					}
+				</div>
+			</section>
+			<p class="text-lg font-mono text-muted-foreground">{ data.Hostname }</p>
+			<div class="flex flex-wrap gap-2">
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Href:    "#",
+					Attributes: templ.Attributes{
+						"data-copy":  fmt.Sprintf("ssh %s.exe.xyz", data.Hostname),
+						"onclick":    "navigator.clipboard.writeText(this.dataset.copy)",
+					},
+				}) {
+					SSH
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Href:    fmt.Sprintf("https://%s.xterm.exe.xyz", data.Hostname),
+					Target:  "_blank",
+				}) {
+					Terminal
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Href:    fmt.Sprintf("https://%s.exe.xyz:9999", data.Hostname),
+					Target:  "_blank",
+				}) {
+					Shelley Agent
+				}
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Href:    "https://exe.dev",
+					Target:  "_blank",
+				}) {
+					exe.dev
+				}
+			</div>
+				if len(data.Headers) > 0 {
+				<section class="space-y-4">
+					<div>
+						<h2 class="text-2xl font-semibold tracking-tight">HTTP headers from exe.dev</h2>
+						<p class="text-sm text-muted-foreground mt-1">
+							exe.dev adds <code class="bg-muted px-1 rounded text-xs">X-ExeDev-*</code> and
+							<code class="bg-muted px-1 rounded text-xs">X-Forwarded-*</code> headers so you
+							don't have to build auth.
+						</p>
+					</div>
+					@table.Table(table.Props{Class: "table-fixed border rounded-md overflow-hidden"}) {
+						@table.Header() {
+							@table.Row() {
+								@table.Head(table.HeadProps{Class: "w-64"}) {
+									Header
+								}
+								@table.Head() {
+									Value
+								}
+							}
+						}
+						@table.Body() {
+							for _, h := range data.Headers {
+								@table.Row() {
+									@table.Cell(table.CellProps{Class: "align-top font-medium"}) {
+										<div class="flex flex-wrap items-center gap-1">
+											<code class="text-sm whitespace-nowrap">{ h.Name }</code>
+											if h.AddedByExe {
+												@badge.Badge(badge.Props{
+													Variant: badge.VariantSecondary,
+												}) {
+													exe.dev
+												}
+											}
+										</div>
+									}
+									@table.Cell(table.CellProps{Class: "break-all"}) {
+										<code class="text-sm">{ strings.Join(h.Values, ", ") }</code>
+									}
+								}
+							}
+						}
+					}
+				</section>
+			}
+		</div>
+	}
+}

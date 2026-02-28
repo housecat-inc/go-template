@@ -1,0 +1,7 @@
+{
+  "componentsDir": "ui/components",
+  "utilsDir": "ui/utils",
+  "moduleName": "srv.housecat.com",
+  "jsDir": "assets/js",
+  "jsPublicPath": "/assets/js"
+}
