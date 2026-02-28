@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/labstack/echo/v4"
+	"github.com/starfederation/datastar-go/datastar"
 
 	"srv.housecat.com/db/dbgen"
 	"srv.housecat.com/ui/layouts"
@@ -19,16 +21,6 @@ import (
 
 const llmGatewayURL = "http://169.254.169.254/gateway/llm/anthropic/v1/messages"
 const llmModel = "claude-sonnet-4-5-20250929"
-
-type chatRequest struct {
-	ChatID   string        `json:"chat_id"`
-	Messages []chatMessage `json:"messages"`
-}
-
-type chatMessage struct {
-	Content string `json:"content"`
-	Role    string `json:"role"`
-}
 
 func (s *Server) HandleChat(c echo.Context) error {
 	r := c.Request()
@@ -72,31 +64,47 @@ func (s *Server) HandleChat(c echo.Context) error {
 	return component.Render(r.Context(), c.Response())
 }
 
-func (s *Server) HandleChatAPI(c echo.Context) error {
-	var req chatRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request")
-	}
-	if len(req.Messages) == 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "no messages")
+type chatSignals struct {
+	ChatID   string        `json:"chatId"`
+	Input    string        `json:"input"`
+	Messages []chatMessage `json:"messages"`
+}
+
+type chatMessage struct {
+	Content string `json:"content"`
+	Role    string `json:"role"`
+}
+
+func (s *Server) HandleChatSend(c echo.Context) error {
+	r := c.Request()
+	ctx := r.Context()
+	userID := c.Get("userID").(string)
+
+	var signals chatSignals
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		slog.Error("read signals", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid signals")
 	}
 
-	ctx := c.Request().Context()
-	userID := c.Get("userID").(string)
+	if strings.TrimSpace(signals.Input) == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "empty message")
+	}
+
 	q := dbgen.New(s.DB)
 
-	if req.ChatID == "" {
+	newChat := signals.ChatID == ""
+	if newChat {
 		id, err := randomHex(16)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, "id generation")
 		}
-		req.ChatID = id
-		title := req.Messages[0].Content
+		signals.ChatID = id
+		title := signals.Input
 		if len(title) > 80 {
 			title = title[:80] + "…"
 		}
 		if err := q.InsertChat(ctx, dbgen.InsertChatParams{
-			ID:     req.ChatID,
+			ID:     signals.ChatID,
 			Title:  title,
 			UserID: userID,
 		}); err != nil {
@@ -104,20 +112,59 @@ func (s *Server) HandleChatAPI(c echo.Context) error {
 		}
 	}
 
-	lastMsg := req.Messages[len(req.Messages)-1]
+	sse := datastar.NewSSE(c.Response(), r)
+
+	if newChat {
+		sse.ExecuteScript(fmt.Sprintf(`window.history.replaceState({}, "", "/chat?id=%s")`, signals.ChatID))
+	}
+
+	signals.Messages = append(signals.Messages, chatMessage{
+		Content: signals.Input,
+		Role:    "user",
+	})
+
 	if err := q.InsertMessage(ctx, dbgen.InsertMessageParams{
-		ChatID:  req.ChatID,
-		Content: lastMsg.Content,
-		Role:    lastMsg.Role,
+		ChatID:  signals.ChatID,
+		Content: signals.Input,
+		Role:    "user",
 	}); err != nil {
 		slog.Error("insert user message", "error", err)
 	}
 
-	_ = q.UpdateChatTimestamp(ctx, req.ChatID)
+	_ = q.UpdateChatTimestamp(ctx, signals.ChatID)
+
+	isNewConversation := len(signals.Messages) == 1
+	if isNewConversation {
+		sse.PatchElementTempl(
+			pages.ChatMainArea(pages.ChatData{ChatID: signals.ChatID, Messages: []dbgen.Message{{Content: signals.Input, Role: "user"}}}),
+		)
+	} else {
+		sse.PatchElementTempl(
+			pages.ChatBubble(dbgen.Message{Content: signals.Input, Role: "user"}),
+			datastar.WithSelectorID("messages"),
+			datastar.WithModeAppend(),
+		)
+	}
+
+	sse.MarshalAndPatchSignals(map[string]any{
+		"input":  "",
+		"chatId": signals.ChatID,
+	})
+
+	sse.ExecuteScript("document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight")
+
+	llmMessages := make([]map[string]string, len(signals.Messages))
+	for i, m := range signals.Messages {
+		role := m.Role
+		if role == "model" {
+			role = "assistant"
+		}
+		llmMessages[i] = map[string]string{"role": role, "content": m.Content}
+	}
 
 	body := map[string]any{
 		"max_tokens": 4096,
-		"messages":   req.Messages,
+		"messages":   llmMessages,
 		"model":      llmModel,
 		"stream":     true,
 	}
@@ -136,29 +183,38 @@ func (s *Server) HandleChatAPI(c echo.Context) error {
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		slog.Error("llm gateway request", "error", err)
-		return echo.NewHTTPError(http.StatusBadGateway, "gateway error")
+		sse.PatchElements(
+			`<div id="streaming-bubble" class="flex justify-start"><div class="max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap bg-red-100 dark:bg-red-900 text-foreground">Error connecting to LLM</div></div>`,
+			datastar.WithSelectorID("messages"),
+			datastar.WithModeAppend(),
+		)
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
 		slog.Error("llm gateway error", "status", resp.StatusCode, "body", string(errBody))
-		return echo.NewHTTPError(http.StatusBadGateway, "llm error: "+string(errBody))
+		sse.PatchElements(
+			`<div id="streaming-bubble" class="flex justify-start"><div class="max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap bg-red-100 dark:bg-red-900 text-foreground">LLM error</div></div>`,
+			datastar.WithSelectorID("messages"),
+			datastar.WithModeAppend(),
+		)
+		return nil
 	}
 
-	w := c.Response()
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-
-	meta, _ := json.Marshal(map[string]string{"chat_id": req.ChatID})
-	_, _ = w.Write([]byte("data: " + string(meta) + "\n\n"))
-	w.Flush()
+	sse.PatchElements(
+		`<div id="streaming-bubble" class="flex justify-start"><div id="streaming-text" class="max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap bg-muted text-foreground"></div></div>`,
+		datastar.WithSelectorID("messages"),
+		datastar.WithModeAppend(),
+	)
 
 	var fullText strings.Builder
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
+		if sse.IsClosed() {
+			break
+		}
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
 			continue
@@ -183,22 +239,57 @@ func (s *Server) HandleChatAPI(c echo.Context) error {
 		}
 
 		fullText.WriteString(event.Delta.Text)
-		chunk, _ := json.Marshal(map[string]string{"text": event.Delta.Text})
-		_, _ = w.Write([]byte("data: " + string(chunk) + "\n\n"))
-		w.Flush()
+
+		sse.PatchElements(
+			fmt.Sprintf(`<div id="streaming-text" class="max-w-[80%%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap bg-muted text-foreground">%s</div>`, escapeHTML(fullText.String())),
+		)
+
+		sse.ExecuteScript("document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight")
 	}
 
 	if fullText.Len() > 0 {
 		if err := q.InsertMessage(ctx, dbgen.InsertMessageParams{
-			ChatID:  req.ChatID,
+			ChatID:  signals.ChatID,
 			Content: fullText.String(),
 			Role:    "model",
 		}); err != nil {
 			slog.Error("insert model message", "error", err)
 		}
+
+		signals.Messages = append(signals.Messages, chatMessage{
+			Content: fullText.String(),
+			Role:    "model",
+		})
+		sse.MarshalAndPatchSignals(map[string]any{
+			"messages":  signals.Messages,
+			"streaming": false,
+		})
+
+		sse.PatchElementTempl(
+			pages.ChatBubble(dbgen.Message{Content: fullText.String(), Role: "model"}),
+			datastar.WithSelectorID("streaming-bubble"),
+			datastar.WithModeReplace(),
+		)
 	}
 
-	_, _ = w.Write([]byte("data: [DONE]\n\n"))
-	w.Flush()
+	chats, err := q.ListChatsByUser(ctx, dbgen.ListChatsByUserParams{
+		UserID: userID,
+		Limit:  50,
+	})
+	if err == nil {
+		sse.PatchElementTempl(
+			pages.ChatSidebarContent(pages.ChatData{ChatID: signals.ChatID, Chats: chats}),
+		)
+	}
+
 	return nil
+}
+
+func escapeHTML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&#39;")
+	return s
 }

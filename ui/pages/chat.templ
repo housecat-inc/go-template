@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -74,22 +75,36 @@ func groupChats(chats []dbgen.Chat) []chatGroup {
 	return groups
 }
 
+func chatSignalsJSON(data ChatData) string {
+	type msg struct {
+		Content string `json:"content"`
+		Role    string `json:"role"`
+	}
+	msgs := make([]msg, len(data.Messages))
+	for i, m := range data.Messages {
+		msgs[i] = msg{Content: m.Content, Role: m.Role}
+	}
+	signals := map[string]any{
+		"chatId":    data.ChatID,
+		"input":     "",
+		"messages":  msgs,
+		"streaming": false,
+	}
+	b, _ := json.Marshal(signals)
+	return string(b)
+}
+
 templ Chat(data ChatData) {
 	@layouts.Layout(data.Nav) {
-		<div class="flex h-full overflow-hidden">
+		<div class="flex h-full overflow-hidden" data-signals={ chatSignalsJSON(data) }>
 			<!-- Chat list sidebar -->
 			<div class="w-72 border-r flex-col bg-muted/10 hidden md:flex">
 				@chatSidebarHeader()
-				@chatSidebarContent(data)
+				@ChatSidebarContent(data)
 			</div>
 			<!-- Main chat area -->
-			if data.ChatID != "" {
-				@chatConversation(data)
-			} else {
-				@chatEmptyState()
-			}
+			@ChatMainArea(data)
 		</div>
-		@chatScript()
 	}
 }
 
@@ -110,8 +125,8 @@ templ chatSidebarHeader() {
 	</div>
 }
 
-templ chatSidebarContent(data ChatData) {
-	<div class="flex-1 overflow-y-auto">
+templ ChatSidebarContent(data ChatData) {
+	<div id="chat-sidebar" class="flex-1 overflow-y-auto">
 		<div class="p-2 space-y-4">
 			if len(data.Chats) == 0 {
 				<p class="text-xs text-muted-foreground px-2 py-4">No conversations yet.</p>
@@ -176,6 +191,16 @@ templ chatConversationItem(chat dbgen.Chat, activeChatID string) {
 	</div>
 }
 
+templ ChatMainArea(data ChatData) {
+	<div id="chat-main">
+		if data.ChatID != "" {
+			@chatConversation(data)
+		} else {
+			@chatEmptyState()
+		}
+	</div>
+}
+
 templ chatEmptyState() {
 	<div class="flex-1 flex items-center justify-center p-8">
 		<div class="text-center max-w-md">
@@ -186,21 +211,7 @@ templ chatEmptyState() {
 			<p class="text-sm text-muted-foreground mb-6">
 				Select a conversation from the sidebar or type a message below.
 			</p>
-			<form id="chat-form" class="flex gap-2">
-				<input
-					id="chat-input"
-					type="text"
-					placeholder="Type a message…"
-					autocomplete="off"
-					class="flex-1 rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				/>
-				<button
-					type="submit"
-					class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-				>
-					Send
-				</button>
-			</form>
+			@chatInputForm()
 			<div class="mt-8 p-4 bg-muted/50 rounded-lg">
 				<h4 class="text-sm font-medium mb-2">Quick Templates</h4>
 				<div class="grid grid-cols-2 gap-2">
@@ -216,8 +227,8 @@ templ chatEmptyState() {
 
 templ chatTemplateButton(label, category string) {
 	<button
-		class="chat-template flex items-center gap-2 p-2 text-sm bg-background border rounded-lg hover:bg-muted transition-colors"
-		data-prompt={ label }
+		class="flex items-center gap-2 p-2 text-sm bg-background border rounded-lg hover:bg-muted transition-colors"
+		data-on:click={ fmt.Sprintf("$input = 'Help me with: %s'", label) }
 	>
 		switch category {
 			case "code":
@@ -237,30 +248,40 @@ templ chatConversation(data ChatData) {
 	<div class="flex-1 flex flex-col min-w-0">
 		<div id="messages" class="flex-1 overflow-y-auto p-4 space-y-4">
 			for _, msg := range data.Messages {
-				@chatBubble(msg)
+				@ChatBubble(msg)
 			}
 		</div>
 		<div class="border-t p-4">
-			<form id="chat-form" class="flex gap-2">
-				<input
-					id="chat-input"
-					type="text"
-					placeholder="Type a message…"
-					autocomplete="off"
-					class="flex-1 rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				/>
-				<button
-					type="submit"
-					class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-				>
-					Send
-				</button>
-			</form>
+			@chatInputForm()
 		</div>
 	</div>
 }
 
-templ chatBubble(msg dbgen.Message) {
+templ chatInputForm() {
+	<form
+		class="flex gap-2"
+		data-on:submit__prevent="$streaming = true; @post('/api/chat')"
+	>
+		<input
+			data-bind:input
+			type="text"
+			placeholder="Type a message\u2026"
+			autocomplete="off"
+			data-attr:disabled="$streaming"
+			class="flex-1 rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+		/>
+		<button
+			type="submit"
+			data-attr:disabled="$input.trim() === '' || $streaming"
+			class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+		>
+			<span data-show="!$streaming">Send</span>
+			<span data-show="$streaming" style="display:none">Sending…</span>
+		</button>
+	</form>
+}
+
+templ ChatBubble(msg dbgen.Message) {
 	<div class={ "flex", templ.KV("justify-end", msg.Role == "user"), templ.KV("justify-start", msg.Role != "user") }>
 		<div
 			class={ "max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap",
@@ -272,8 +293,4 @@ templ chatBubble(msg dbgen.Message) {
 			{ msg.Content }
 		</div>
 	</div>
-}
-
-templ chatScript() {
-	<script defer src="/assets/js/chat.js"></script>
 }

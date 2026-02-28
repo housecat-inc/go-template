@@ -63,7 +63,7 @@ func (s *Server) Serve(addr string) error {
 		e.GET("/auth/google", s.HandleAuthGoogle)
 		e.GET("/auth/callback", s.HandleAuthCallback)
 	}
-	e.POST("/api/chat", s.HandleChatAPI, s.RequireAuth)
+	e.POST("/api/chat", s.HandleChatSend, s.RequireAuth)
 	e.GET("/auth/logout", s.HandleAuthLogout)
 	e.Static("/assets", s.AssetsDir)
 
