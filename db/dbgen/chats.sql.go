@@ -9,23 +9,9 @@ import (
 	"context"
 )
 
-const deleteChat = `-- name: DeleteChat :exec
-DELETE FROM chats WHERE id = ? AND user_id = ?
-`
-
-type DeleteChatParams struct {
-	ID     string `json:"id"`
-	UserID string `json:"user_id"`
-}
-
-func (q *Queries) DeleteChat(ctx context.Context, arg DeleteChatParams) error {
-	_, err := q.db.ExecContext(ctx, deleteChat, arg.ID, arg.UserID)
-	return err
-}
-
 const getChat = `-- name: GetChat :one
-SELECT id, title, user_id, created_at, updated_at FROM chats
-WHERE id = ? AND user_id = ?
+SELECT id, title, user_id, created_at, updated_at, deleted_at FROM chats
+WHERE id = ? AND user_id = ? AND deleted_at IS NULL
 `
 
 type GetChatParams struct {
@@ -42,6 +28,7 @@ func (q *Queries) GetChat(ctx context.Context, arg GetChatParams) (Chat, error) 
 		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -63,8 +50,8 @@ func (q *Queries) InsertChat(ctx context.Context, arg InsertChatParams) error {
 }
 
 const listChatsByUser = `-- name: ListChatsByUser :many
-SELECT id, title, user_id, created_at, updated_at FROM chats
-WHERE user_id = ?
+SELECT id, title, user_id, created_at, updated_at, deleted_at FROM chats
+WHERE user_id = ? AND deleted_at IS NULL
 ORDER BY updated_at DESC
 LIMIT ?
 `
@@ -89,6 +76,7 @@ func (q *Queries) ListChatsByUser(ctx context.Context, arg ListChatsByUserParams
 			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -101,6 +89,21 @@ func (q *Queries) ListChatsByUser(ctx context.Context, arg ListChatsByUserParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const softDeleteChat = `-- name: SoftDeleteChat :exec
+UPDATE chats SET deleted_at = CURRENT_TIMESTAMP
+WHERE id = ? AND user_id = ?
+`
+
+type SoftDeleteChatParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) SoftDeleteChat(ctx context.Context, arg SoftDeleteChatParams) error {
+	_, err := q.db.ExecContext(ctx, softDeleteChat, arg.ID, arg.UserID)
+	return err
 }
 
 const updateChatTimestamp = `-- name: UpdateChatTimestamp :exec

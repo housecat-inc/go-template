@@ -4,11 +4,11 @@ VALUES (?, ?, ?);
 
 -- name: GetChat :one
 SELECT * FROM chats
-WHERE id = ? AND user_id = ?;
+WHERE id = ? AND user_id = ? AND deleted_at IS NULL;
 
 -- name: ListChatsByUser :many
 SELECT * FROM chats
-WHERE user_id = ?
+WHERE user_id = ? AND deleted_at IS NULL
 ORDER BY updated_at DESC
 LIMIT ?;
 
@@ -20,5 +20,6 @@ WHERE id = ?;
 UPDATE chats SET updated_at = CURRENT_TIMESTAMP
 WHERE id = ?;
 
--- name: DeleteChat :exec
-DELETE FROM chats WHERE id = ? AND user_id = ?;
+-- name: SoftDeleteChat :exec
+UPDATE chats SET deleted_at = CURRENT_TIMESTAMP
+WHERE id = ? AND user_id = ?;

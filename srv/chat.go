@@ -294,7 +294,7 @@ func (s *Server) HandleChatDelete(c echo.Context) error {
 	_ = datastar.ReadSignals(r, &signals)
 
 	q := dbgen.New(s.DB)
-	if err := q.DeleteChat(ctx, dbgen.DeleteChatParams{
+	if err := q.SoftDeleteChat(ctx, dbgen.SoftDeleteChatParams{
 		ID:     chatID,
 		UserID: userID,
 	}); err != nil {
