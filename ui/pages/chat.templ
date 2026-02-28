@@ -1,0 +1,112 @@
+package pages
+
+import "srv.housecat.com/ui/layouts"
+
+templ Chat(nav layouts.NavData) {
+	@layouts.Layout(nav) {
+		<div class="flex flex-col h-[calc(100vh-7rem)]">
+			<div id="messages" class="flex-1 overflow-y-auto space-y-4 pb-4">
+				<p class="text-muted-foreground text-sm">Send a message to start chatting.</p>
+			</div>
+			<form id="chat-form" class="flex gap-2 pt-4 border-t">
+				<input
+					id="chat-input"
+					type="text"
+					placeholder="Type a message…"
+					autocomplete="off"
+					class="flex-1 rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				/>
+				<button
+					type="submit"
+					class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					Send
+				</button>
+			</form>
+		</div>
+		<script>
+			(function() {
+				const messages = document.getElementById('messages');
+				const form = document.getElementById('chat-form');
+				const input = document.getElementById('chat-input');
+				let history = [];
+				let streaming = false;
+
+				function addBubble(role, text) {
+					const isUser = role === 'user';
+					const wrap = document.createElement('div');
+					wrap.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
+					const bubble = document.createElement('div');
+					bubble.className = 'max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ' +
+						(isUser ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground');
+					bubble.textContent = text;
+					wrap.appendChild(bubble);
+					// Remove placeholder if present
+					const placeholder = messages.querySelector('p.text-muted-foreground');
+					if (placeholder) placeholder.remove();
+					messages.appendChild(wrap);
+					messages.scrollTop = messages.scrollHeight;
+					return bubble;
+				}
+
+				form.addEventListener('submit', async function(e) {
+					e.preventDefault();
+					const text = input.value.trim();
+					if (!text || streaming) return;
+					streaming = true;
+					input.value = '';
+					form.querySelector('button').disabled = true;
+
+					addBubble('user', text);
+					history.push({role: 'user', content: text});
+
+					const bubble = addBubble('assistant', '');
+					let fullText = '';
+
+					try {
+						const resp = await fetch('/api/chat', {
+							method: 'POST',
+							headers: {'Content-Type': 'application/json'},
+							body: JSON.stringify({messages: history})
+						});
+						if (!resp.ok) {
+							bubble.textContent = 'Error: ' + resp.statusText;
+							return;
+						}
+						const reader = resp.body.getReader();
+						const decoder = new TextDecoder();
+						let buf = '';
+
+						while (true) {
+							const {done, value} = await reader.read();
+							if (done) break;
+							buf += decoder.decode(value, {stream: true});
+							const lines = buf.split('\n');
+							buf = lines.pop();
+							for (const line of lines) {
+								if (!line.startsWith('data: ')) continue;
+								const data = line.slice(6);
+								if (data === '[DONE]') continue;
+								try {
+									const parsed = JSON.parse(data);
+									if (parsed.text) {
+										fullText += parsed.text;
+										bubble.textContent = fullText;
+										messages.scrollTop = messages.scrollHeight;
+									}
+								} catch(ex) {}
+							}
+						}
+						history.push({role: 'assistant', content: fullText});
+					} catch(err) {
+						bubble.textContent = 'Error: ' + err.message;
+					} finally {
+						streaming = false;
+						form.querySelector('button').disabled = false;
+						input.focus();
+					}
+				});
+			})();
+		</script>
+	}
+}
