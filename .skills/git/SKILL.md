@@ -69,19 +69,45 @@ git push origin feature/short-description
 
 ## Opening Pull Requests
 
-Use `gh-app` to create PRs:
+### PR title and description
+
+Write titles and descriptions as customer-facing release notes. Focus on what changed for the user, not implementation details. The code reviewer will read the code and run automated tests.
+
+**Title:** Past-tense summary of the user-visible change.
+
+**Body:** Bullet list of notable changes.
+
+Example:
+
+```
+Title: Added GitHub integration
+Body:
+- Add GitHub app sign in option
+- Add GitHub project management service integration
+- Add GitHub flavored markdown (GFM) to document renderer
+```
+
+Do NOT describe code details, test coverage, refactoring mechanics, or file-level changes.
+
+### Creating PRs
 
 ```bash
-gh-app pr create --title "Add search endpoint" --body "Description of changes" --base main
+gh-app pr create --title "Added search" --body "- Add full-text search to documents" --base main
 ```
 
 For draft PRs:
 
 ```bash
-gh-app pr create --title "WIP: Add search" --body "..." --base main --draft
+gh-app pr create --title "Added search" --body "..." --base main --draft
 ```
 
-To check PR status:
+### Updating PR title/description
+
+```bash
+gh-app pr edit --title "Updated title" --body "- Updated description"
+```
+
+### Checking PR status
 
 ```bash
 gh-app pr status
@@ -134,7 +160,8 @@ git branch -d feature/short-description
 | Refresh auth | `gh-app auth status` |
 | New branch | `git checkout -b feature/name` |
 | Push branch | `git push origin feature/name` |
-| Open PR | `gh-app pr create --title "..." --body "..." --base main` |
+| Open PR | `gh-app pr create --title "Added ..." --body "- ..." --base main` |
+| Edit PR | `gh-app pr edit --title "..." --body "..."` |
 | Sync with main | `git fetch origin && git rebase origin/main` |
 | Check PR status | `gh-app pr status` |
 | Merge PR | `gh-app pr merge --squash` |
