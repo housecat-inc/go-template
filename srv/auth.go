@@ -55,23 +55,26 @@ func (s *Server) getSession(r *http.Request) (dbgen.Session, error) {
 func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		r := c.Request()
-		userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
-		userEmail := strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
-		logoutURL := "/__exe.dev/logout?redirect=/"
+		var logoutURL, userEmail, userID string
 
-		if userID == "" {
-			session, err := s.getSession(r)
-			if err != nil {
-				return c.Redirect(http.StatusFound, "/")
-			}
-			userID = session.UserID
-			userEmail = session.Email
+		session, err := s.getSession(r)
+		if err == nil {
 			logoutURL = "/auth/logout"
+			userEmail = session.Email
+			userID = session.UserID
+		} else {
+			userID = strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
+			userEmail = strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
+			logoutURL = "/__exe.dev/logout?redirect=/"
 		}
 
-		c.Set("userID", userID)
-		c.Set("userEmail", userEmail)
+		if userID == "" {
+			return c.Redirect(http.StatusFound, "/")
+		}
+
 		c.Set("logoutURL", logoutURL)
+		c.Set("userEmail", userEmail)
+		c.Set("userID", userID)
 		return next(c)
 	}
 }
