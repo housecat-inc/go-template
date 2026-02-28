@@ -30,6 +30,16 @@ gh-app auth status
 
 Or before any `gh` command by using `gh-app` instead of `gh`.
 
+### Git credential helper
+
+After authenticating, configure git to use `gh` for HTTPS credentials:
+
+```bash
+gh auth setup-git
+```
+
+This only needs to be run once per VM. Without it, `git push` over HTTPS will fail.
+
 ### Git identity
 
 ```
