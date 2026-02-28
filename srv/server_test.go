@@ -22,32 +22,62 @@ func TestServerSetupAndHandlers(t *testing.T) {
 
 	e := echo.New()
 
-	t.Run("root endpoint unauthenticated", func(t *testing.T) {
+	t.Run("root unauthenticated shows sign-in", func(t *testing.T) {
 		a := assert.New(t)
-		r := require.New(t)
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		w := httptest.NewRecorder()
 		c := e.NewContext(req, w)
 
+		r := require.New(t)
 		r.NoError(server.HandleRoot(c))
 
-		body := w.Body.String()
-		a.Contains(body, "Sign in")
-		a.Contains(body, "exe.dev")
+		a.Equal(http.StatusOK, w.Code)
+		a.Contains(w.Body.String(), "Sign in")
+		a.Contains(w.Body.String(), "exe.dev")
 	})
 
-	t.Run("root endpoint authenticated", func(t *testing.T) {
+	t.Run("root authenticated redirects to /home", func(t *testing.T) {
 		a := assert.New(t)
-		r := require.New(t)
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("X-ExeDev-UserID", "user123")
+		w := httptest.NewRecorder()
+		c := e.NewContext(req, w)
+
+		r := require.New(t)
+		r.NoError(server.HandleRoot(c))
+
+		a.Equal(http.StatusFound, w.Code)
+		a.Equal("/home", w.Header().Get("Location"))
+	})
+
+	t.Run("home unauthenticated redirects to /", func(t *testing.T) {
+		a := assert.New(t)
+		req := httptest.NewRequest(http.MethodGet, "/home", nil)
+		w := httptest.NewRecorder()
+		c := e.NewContext(req, w)
+
+		handler := server.RequireAuth(server.HandleHome)
+		r := require.New(t)
+		r.NoError(handler(c))
+
+		a.Equal(http.StatusFound, w.Code)
+		a.Equal("/", w.Header().Get("Location"))
+	})
+
+	t.Run("home authenticated shows welcome page", func(t *testing.T) {
+		a := assert.New(t)
+		req := httptest.NewRequest(http.MethodGet, "/home", nil)
 		req.Header.Set("X-ExeDev-UserID", "user123")
 		req.Header.Set("X-ExeDev-Email", "test@example.com")
 		w := httptest.NewRecorder()
 		c := e.NewContext(req, w)
 
-		r.NoError(server.HandleRoot(c))
+		handler := server.RequireAuth(server.HandleHome)
+		r := require.New(t)
+		r.NoError(handler(c))
 
 		body := w.Body.String()
+		a.Equal(http.StatusOK, w.Code)
 		a.Contains(body, "Signed in as")
 		a.Contains(body, "test@example.com")
 	})
@@ -56,18 +86,20 @@ func TestServerSetupAndHandlers(t *testing.T) {
 		a := assert.New(t)
 		r := require.New(t)
 
-		req1 := httptest.NewRequest(http.MethodGet, "/", nil)
+		req1 := httptest.NewRequest(http.MethodGet, "/home", nil)
 		req1.Header.Set("X-ExeDev-UserID", "counter-test")
 		w1 := httptest.NewRecorder()
 		c1 := e.NewContext(req1, w1)
-		r.NoError(server.HandleRoot(c1))
+		handler := server.RequireAuth(server.HandleHome)
+		r.NoError(handler(c1))
 		a.Contains(w1.Body.String(), ">1<")
 
-		req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+		req2 := httptest.NewRequest(http.MethodGet, "/home", nil)
 		req2.Header.Set("X-ExeDev-UserID", "counter-test")
 		w2 := httptest.NewRecorder()
 		c2 := e.NewContext(req2, w2)
-		r.NoError(server.HandleRoot(c2))
+		handler2 := server.RequireAuth(server.HandleHome)
+		r.NoError(handler2(c2))
 		a.Contains(w2.Body.String(), ">2<")
 	})
 }

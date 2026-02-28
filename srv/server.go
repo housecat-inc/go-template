@@ -2,13 +2,10 @@ package srv
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -26,13 +23,6 @@ import (
 	"srv.housecat.com/ui/pages"
 )
 
-type OAuthConfig struct {
-	ClientID      string
-	ClientSecret  string
-	Issuer        string
-	SessionSecret string
-}
-
 type Server struct {
 	AssetsDir    string
 	DB           *sql.DB
@@ -46,8 +36,8 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
 	_, thisFile, _, _ := runtime.Caller(0)
 	baseDir := filepath.Dir(thisFile)
 	srv := &Server{
-		Hostname:  hostname,
 		AssetsDir: filepath.Join(baseDir, "..", "assets"),
+		Hostname:  hostname,
 		OAuth:     oauthCfg,
 	}
 	if err := srv.setUpDatabase(dbPath); err != nil {
@@ -61,47 +51,51 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
 	return srv, nil
 }
 
-func (s *Server) setUpOIDC(ctx context.Context) error {
-	provider, err := oidc.NewProvider(ctx, s.OAuth.Issuer)
-	if err != nil {
-		return errors.Wrap(err, "oidc discovery")
+func (s *Server) Serve(addr string) error {
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+
+	e.GET("/", s.HandleRoot)
+	e.GET("/home", s.HandleHome, s.RequireAuth)
+	if s.oauth2Config != nil {
+		e.GET("/auth/google", s.HandleAuthGoogle)
+		e.GET("/auth/callback", s.HandleAuthCallback)
 	}
-	s.oidcProvider = provider
-	s.oauth2Config = &oauth2.Config{
-		ClientID:     s.OAuth.ClientID,
-		ClientSecret: s.OAuth.ClientSecret,
-		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
-	}
-	return nil
+	e.POST("/auth/logout", s.HandleAuthLogout)
+	e.Static("/assets", s.AssetsDir)
+
+	slog.Info("starting server", "addr", addr)
+	return e.Start(addr)
 }
 
 func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
 	userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
-	userEmail := strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
-	logoutURL := "/__exe.dev/logout?redirect=/"
-
-	if userID == "" && s.DB != nil {
-		if cookie, err := r.Cookie("session_id"); err == nil {
-			q := dbgen.New(s.DB)
-			session, err := q.GetSession(r.Context(), cookie.Value)
-			if err == nil {
-				userID = session.UserID
-				userEmail = session.Email
-				logoutURL = "/auth/logout"
-			}
-		}
-	}
 
 	if userID == "" {
-		googleURL := ""
-		if s.oauth2Config != nil {
-			googleURL = "/auth/google"
+		if _, err := s.getSession(r); err == nil {
+			userID = "session"
 		}
-		component := auth.SignInPage(loginURLForRequest(r), googleURL)
-		return component.Render(r.Context(), c.Response())
 	}
+
+	if userID != "" {
+		return c.Redirect(http.StatusFound, "/home")
+	}
+
+	googleURL := ""
+	if s.oauth2Config != nil {
+		googleURL = "/auth/google"
+	}
+	component := auth.SignInPage(loginURLForRequest(r), googleURL)
+	return component.Render(r.Context(), c.Response())
+}
+
+func (s *Server) HandleHome(c echo.Context) error {
+	r := c.Request()
+	userID := c.Get("userID").(string)
+	userEmail := c.Get("userEmail").(string)
+	logoutURL := c.Get("logoutURL").(string)
 
 	now := time.Now()
 
@@ -128,24 +122,29 @@ func (s *Server) HandleRoot(c echo.Context) error {
 	}
 
 	data := pages.PageData{
-		Hostname:      s.Hostname,
-		Now:           now.Format(time.RFC3339),
-		UserEmail:     userEmail,
 		ActivityCount: count,
+		Headers:       buildHeaderEntries(r),
+		Hostname:      s.Hostname,
 		LoginURL:      loginURLForRequest(r),
 		LogoutURL:     logoutURL,
-		Headers:       buildHeaderEntries(r),
+		Now:           now.Format(time.RFC3339),
+		UserEmail:     userEmail,
 	}
 
-	component := pages.Welcome(data)
+	component := pages.Home(data)
 	return component.Render(r.Context(), c.Response())
 }
 
-func loginURLForRequest(r *http.Request) string {
-	path := r.URL.RequestURI()
-	v := url.Values{}
-	v.Set("redirect", path)
-	return "/__exe.dev/login?" + v.Encode()
+func (s *Server) setUpDatabase(dbPath string) error {
+	wdb, err := db.Open(dbPath)
+	if err != nil {
+		return errors.Wrap(err, "open db")
+	}
+	s.DB = wdb
+	if err := db.RunMigrations(wdb); err != nil {
+		return errors.Wrap(err, "run migrations")
+	}
+	return nil
 }
 
 func mainDomainFromHost(h string) string {
@@ -163,167 +162,6 @@ func mainDomainFromHost(h string) string {
 		return "exe.dev"
 	}
 	return host
-}
-
-func (s *Server) setUpDatabase(dbPath string) error {
-	wdb, err := db.Open(dbPath)
-	if err != nil {
-		return errors.Wrap(err, "open db")
-	}
-	s.DB = wdb
-	if err := db.RunMigrations(wdb); err != nil {
-		return errors.Wrap(err, "run migrations")
-	}
-	return nil
-}
-
-func (s *Server) Serve(addr string) error {
-	e := echo.New()
-	e.HideBanner = true
-	e.HidePort = true
-
-	e.GET("/", s.HandleRoot)
-	if s.oauth2Config != nil {
-		e.GET("/auth/google", s.HandleAuthGoogle)
-		e.GET("/auth/callback", s.HandleAuthCallback)
-	}
-	e.POST("/auth/logout", s.HandleAuthLogout)
-	e.Static("/assets", s.AssetsDir)
-
-	slog.Info("starting server", "addr", addr)
-	return e.Start(addr)
-}
-
-func (s *Server) callbackURL(r *http.Request) string {
-	scheme := "https"
-	if r.TLS == nil && !strings.HasPrefix(r.Header.Get("X-Forwarded-Proto"), "https") {
-		scheme = "http"
-	}
-	return scheme + "://" + r.Host + "/auth/callback"
-}
-
-func (s *Server) HandleAuthGoogle(c echo.Context) error {
-	r := c.Request()
-
-	state, err := randomHex(16)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate state")
-	}
-
-	c.SetCookie(&http.Cookie{
-		Name:     "oauth_state",
-		Value:    state,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   600,
-	})
-
-	cfg := *s.oauth2Config
-	cfg.RedirectURL = s.callbackURL(r)
-	return c.Redirect(http.StatusFound, cfg.AuthCodeURL(state))
-}
-
-func (s *Server) HandleAuthCallback(c echo.Context) error {
-	r := c.Request()
-	ctx := r.Context()
-
-	stateCookie, err := r.Cookie("oauth_state")
-	if err != nil || stateCookie.Value == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "missing state cookie")
-	}
-	if c.QueryParam("state") != stateCookie.Value {
-		return echo.NewHTTPError(http.StatusBadRequest, "state mismatch")
-	}
-	c.SetCookie(&http.Cookie{
-		Name:   "oauth_state",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
-	})
-
-	cfg := *s.oauth2Config
-	cfg.RedirectURL = s.callbackURL(r)
-	token, err := cfg.Exchange(ctx, c.QueryParam("code"))
-	if err != nil {
-		slog.Error("oauth exchange", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "failed to exchange code")
-	}
-
-	rawIDToken, ok := token.Extra("id_token").(string)
-	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "no id_token in response")
-	}
-	verifier := s.oidcProvider.Verifier(&oidc.Config{ClientID: s.OAuth.ClientID})
-	idToken, err := verifier.Verify(ctx, rawIDToken)
-	if err != nil {
-		slog.Error("id token verify", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid id_token")
-	}
-
-	var claims struct {
-		Email string `json:"email"`
-		Sub   string `json:"sub"`
-	}
-	if err := idToken.Claims(&claims); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to parse claims")
-	}
-
-	sessionID, err := randomHex(32)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate session")
-	}
-
-	q := dbgen.New(s.DB)
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	if err := q.InsertSession(ctx, dbgen.InsertSessionParams{
-		ID:        sessionID,
-		UserID:    claims.Sub,
-		Email:     claims.Email,
-		ExpiresAt: expiresAt,
-	}); err != nil {
-		slog.Error("insert session", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create session")
-	}
-
-	c.SetCookie(&http.Cookie{
-		Name:     "session_id",
-		Value:    sessionID,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 60 * 60,
-	})
-
-	return c.Redirect(http.StatusFound, "/")
-}
-
-func (s *Server) HandleAuthLogout(c echo.Context) error {
-	r := c.Request()
-
-	if cookie, err := r.Cookie("session_id"); err == nil && s.DB != nil {
-		q := dbgen.New(s.DB)
-		_ = q.DeleteSession(r.Context(), cookie.Value)
-	}
-
-	c.SetCookie(&http.Cookie{
-		Name:   "session_id",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
-	})
-
-	return c.Redirect(http.StatusFound, "/")
-}
-
-func randomHex(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
 }
 
 func buildHeaderEntries(r *http.Request) []pages.HeaderEntry {

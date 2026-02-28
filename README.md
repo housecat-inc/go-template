@@ -43,34 +43,15 @@ sudo systemctl restart srv
 
 ## Authorization
 
-exe.dev provides authorization headers and login/logout links
-that this template uses.
+To make public go to https://auth.housecat.com/admin and generate a setup token and pass the instructions to Shelley.
 
-When proxied through exed, requests will include `X-ExeDev-UserID` and
-`X-ExeDev-Email` if the user is authenticated via exe.dev.
-
-To make public
+Then:
 
 ```bash
 ssh exe.dev share set-public daemon-juliet
 ```
 
-## Google OAuth Setup
-
-To enable Google sign-in via auth.housecat.com:
-
-1. Go to https://auth.housecat.com and register a new app
-   - Set the callback URL to `https://<hostname>.exe.xyz/auth/callback`
-2. SSH to the VM and create `/home/exedev/.env`:
-   ```
-   HOUSECAT_CLIENT_ID=<from step 1>
-   HOUSECAT_CLIENT_SECRET=<from step 1>
-   SESSION_SECRET=$(openssl rand -hex 32)
-   ```
-3. Restart: `sudo systemctl daemon-reload && sudo systemctl restart srv`
-
-The server will skip OIDC setup if `HOUSECAT_CLIENT_ID` is not set, so Google
-sign-in is optional.
+As a fallback exe.dev provides authorization headers and login/logout links. When proxied through exed, requests will include `X-ExeDev-UserID` and `X-ExeDev-Email` if the user is authenticated via exe.dev.
 
 ## Database
 
@@ -83,6 +64,6 @@ This template uses templ and templui. Run `go tool templ generate` to generate t
 ## Code layout
 
 - `cmd/srv`: main package (binary entrypoint)
+- `db`: SQLite open + migrations (001-base.sql)
 - `srv`: HTTP server logic (handlers)
 - `ui`: templ UI components
-- `db`: SQLite open + migrations (001-base.sql)

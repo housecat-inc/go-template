@@ -27,7 +27,7 @@ type HeaderEntry struct {
 	AddedByExe bool
 }
 
-templ Welcome(data PageData) {
+templ Home(data PageData) {
 	@layouts.Layout(layouts.NavData{
 		Title:     data.Hostname,
 		UserEmail: data.UserEmail,
