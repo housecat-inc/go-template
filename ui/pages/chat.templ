@@ -1,36 +1,97 @@
 package pages
 
-import "srv.housecat.com/ui/layouts"
+import (
+	"fmt"
 
-templ Chat(nav layouts.NavData) {
-	@layouts.Layout(nav) {
-		<div class="flex flex-col h-[calc(100vh-7rem)]">
-			<div id="messages" class="flex-1 overflow-y-auto space-y-4 pb-4">
-				<p class="text-muted-foreground text-sm">Send a message to start chatting.</p>
+	"srv.housecat.com/db/dbgen"
+	"srv.housecat.com/ui/layouts"
+)
+
+type ChatData struct {
+	ChatID   string
+	Chats    []dbgen.Chat
+	Messages []dbgen.Message
+	Nav      layouts.NavData
+}
+
+templ Chat(data ChatData) {
+	@layouts.Layout(data.Nav) {
+		<div class="flex gap-6 h-[calc(100vh-7rem)]">
+			<aside class="w-56 shrink-0 border-r pr-4 overflow-y-auto hidden md:block">
+				<div class="flex items-center justify-between mb-3">
+					<h2 class="text-sm font-semibold">Chats</h2>
+					<a href="/chat" class="text-xs text-muted-foreground hover:text-foreground">+ New</a>
+				</div>
+				if len(data.Chats) == 0 {
+					<p class="text-xs text-muted-foreground">No chats yet.</p>
+				}
+				<nav class="space-y-1">
+					for _, chat := range data.Chats {
+						<a
+							href={ templ.SafeURL(fmt.Sprintf("/chat?id=%s", chat.ID)) }
+							class={ "block truncate rounded-md px-2 py-1.5 text-sm",
+								templ.KV("bg-muted font-medium", chat.ID == data.ChatID),
+								templ.KV("text-muted-foreground hover:bg-muted/50", chat.ID != data.ChatID) }
+						>
+							{ chat.Title }
+						</a>
+					}
+				</nav>
+			</aside>
+			<div class="flex-1 flex flex-col min-w-0">
+				<div id="messages" class="flex-1 overflow-y-auto space-y-4 pb-4">
+					if len(data.Messages) == 0 {
+						<p class="text-muted-foreground text-sm">Send a message to start chatting.</p>
+					}
+					for _, msg := range data.Messages {
+						<div class={ "flex", templ.KV("justify-end", msg.Role == "user"), templ.KV("justify-start", msg.Role != "user") }>
+							<div class={ "max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap",
+								templ.KV("bg-primary text-primary-foreground", msg.Role == "user"),
+								templ.KV("bg-muted text-foreground", msg.Role == "model"),
+								templ.KV("bg-blue-100 dark:bg-blue-900 text-foreground", msg.Role == "tool"),
+								templ.KV("bg-yellow-100 dark:bg-yellow-900 text-foreground italic", msg.Role == "harness") }>
+								{ msg.Content }
+							</div>
+						</div>
+					}
+				</div>
+				<form id="chat-form" class="flex gap-2 pt-4 border-t">
+					<input
+						id="chat-input"
+						type="text"
+						placeholder="Type a message…"
+						autocomplete="off"
+						class="flex-1 rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					/>
+					<button
+						type="submit"
+						class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+					>
+						Send
+					</button>
+				</form>
 			</div>
-			<form id="chat-form" class="flex gap-2 pt-4 border-t">
-				<input
-					id="chat-input"
-					type="text"
-					placeholder="Type a message…"
-					autocomplete="off"
-					class="flex-1 rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				/>
-				<button
-					type="submit"
-					class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-				>
-					Send
-				</button>
-			</form>
 		</div>
 		<script>
 			(function() {
 				const messages = document.getElementById('messages');
 				const form = document.getElementById('chat-form');
 				const input = document.getElementById('chat-input');
-				let history = [];
+				let chatID = new URLSearchParams(window.location.search).get('id') || '';
 				let streaming = false;
+
+				// Build history from server-rendered messages
+				let history = [];
+				document.querySelectorAll('#messages > div.flex').forEach(function(el) {
+					const isUser = el.classList.contains('justify-end');
+					const bubble = el.querySelector('div');
+					if (bubble) {
+						history.push({role: isUser ? 'user' : 'assistant', content: bubble.textContent});
+					}
+				});
+
+				// Scroll to bottom on load
+				messages.scrollTop = messages.scrollHeight;
 
 				function addBubble(role, text) {
 					const isUser = role === 'user';
@@ -41,7 +102,6 @@ templ Chat(nav layouts.NavData) {
 						(isUser ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground');
 					bubble.textContent = text;
 					wrap.appendChild(bubble);
-					// Remove placeholder if present
 					const placeholder = messages.querySelector('p.text-muted-foreground');
 					if (placeholder) placeholder.remove();
 					messages.appendChild(wrap);
@@ -67,7 +127,7 @@ templ Chat(nav layouts.NavData) {
 						const resp = await fetch('/api/chat', {
 							method: 'POST',
 							headers: {'Content-Type': 'application/json'},
-							body: JSON.stringify({messages: history})
+							body: JSON.stringify({chat_id: chatID, messages: history})
 						});
 						if (!resp.ok) {
 							bubble.textContent = 'Error: ' + resp.statusText;
@@ -89,6 +149,10 @@ templ Chat(nav layouts.NavData) {
 								if (data === '[DONE]') continue;
 								try {
 									const parsed = JSON.parse(data);
+									if (parsed.chat_id && !chatID) {
+										chatID = parsed.chat_id;
+										window.history.replaceState(null, '', '/chat?id=' + chatID);
+									}
 									if (parsed.text) {
 										fullText += parsed.text;
 										bubble.textContent = fullText;

@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/labstack/echo/v4"
 
+	"srv.housecat.com/db/dbgen"
 	"srv.housecat.com/ui/layouts"
 	"srv.housecat.com/ui/pages"
 )
@@ -19,6 +21,7 @@ const llmGatewayURL = "http://169.254.169.254/gateway/llm/anthropic/v1/messages"
 const llmModel = "claude-sonnet-4-5-20250929"
 
 type chatRequest struct {
+	ChatID   string        `json:"chat_id"`
 	Messages []chatMessage `json:"messages"`
 }
 
@@ -30,7 +33,9 @@ type chatMessage struct {
 func (s *Server) HandleChat(c echo.Context) error {
 	r := c.Request()
 	userEmail := c.Get("userEmail").(string)
+	userID := c.Get("userID").(string)
 	logoutURL := c.Get("logoutURL").(string)
+	chatID := c.QueryParam("id")
 
 	nav := layouts.NavData{
 		Title:     s.Hostname,
@@ -38,7 +43,31 @@ func (s *Server) HandleChat(c echo.Context) error {
 		LoginURL:  loginURLForRequest(r),
 		LogoutURL: logoutURL,
 	}
-	component := pages.Chat(nav)
+
+	q := dbgen.New(s.DB)
+	chats, err := q.ListChatsByUser(r.Context(), dbgen.ListChatsByUserParams{
+		UserID: userID,
+		Limit:  50,
+	})
+	if err != nil {
+		slog.Error("list chats", "error", err)
+	}
+
+	var msgs []dbgen.Message
+	if chatID != "" {
+		msgs, err = q.ListMessagesByChat(r.Context(), chatID)
+		if err != nil {
+			slog.Error("list messages", "error", err)
+		}
+	}
+
+	data := pages.ChatData{
+		ChatID:   chatID,
+		Chats:    chats,
+		Messages: msgs,
+		Nav:      nav,
+	}
+	component := pages.Chat(data)
 	return component.Render(r.Context(), c.Response())
 }
 
@@ -51,6 +80,40 @@ func (s *Server) HandleChatAPI(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "no messages")
 	}
 
+	ctx := c.Request().Context()
+	userID := c.Get("userID").(string)
+	q := dbgen.New(s.DB)
+
+	if req.ChatID == "" {
+		id, err := randomHex(16)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "id generation")
+		}
+		req.ChatID = id
+		title := req.Messages[0].Content
+		if len(title) > 80 {
+			title = title[:80] + "…"
+		}
+		if err := q.InsertChat(ctx, dbgen.InsertChatParams{
+			ID:     req.ChatID,
+			Title:  title,
+			UserID: userID,
+		}); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, errors.Wrap(err, "insert chat").Error())
+		}
+	}
+
+	lastMsg := req.Messages[len(req.Messages)-1]
+	if err := q.InsertMessage(ctx, dbgen.InsertMessageParams{
+		ChatID:  req.ChatID,
+		Content: lastMsg.Content,
+		Role:    lastMsg.Role,
+	}); err != nil {
+		slog.Error("insert user message", "error", err)
+	}
+
+	_ = q.UpdateChatTimestamp(ctx, req.ChatID)
+
 	body := map[string]any{
 		"max_tokens": 4096,
 		"messages":   req.Messages,
@@ -62,7 +125,7 @@ func (s *Server) HandleChatAPI(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "marshal error")
 	}
 
-	httpReq, err := http.NewRequestWithContext(c.Request().Context(), "POST", llmGatewayURL, bytes.NewReader(jsonBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", llmGatewayURL, bytes.NewReader(jsonBody))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "request error")
 	}
@@ -88,6 +151,11 @@ func (s *Server) HandleChatAPI(c echo.Context) error {
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
+	meta, _ := json.Marshal(map[string]string{"chat_id": req.ChatID})
+	_, _ = w.Write([]byte("data: " + string(meta) + "\n\n"))
+	w.Flush()
+
+	var fullText strings.Builder
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -113,9 +181,20 @@ func (s *Server) HandleChatAPI(c echo.Context) error {
 			continue
 		}
 
+		fullText.WriteString(event.Delta.Text)
 		chunk, _ := json.Marshal(map[string]string{"text": event.Delta.Text})
 		_, _ = w.Write([]byte("data: " + string(chunk) + "\n\n"))
 		w.Flush()
+	}
+
+	if fullText.Len() > 0 {
+		if err := q.InsertMessage(ctx, dbgen.InsertMessageParams{
+			ChatID:  req.ChatID,
+			Content: fullText.String(),
+			Role:    "model",
+		}); err != nil {
+			slog.Error("insert model message", "error", err)
+		}
 	}
 
 	_, _ = w.Write([]byte("data: [DONE]\n\n"))
