@@ -6,15 +6,12 @@ import (
 	"time"
 
 	"srv.housecat.com/db/dbgen"
-	"srv.housecat.com/ui/components/button"
 	"srv.housecat.com/ui/components/icon"
-	"srv.housecat.com/ui/components/input"
 	"srv.housecat.com/ui/layouts"
 )
 
 type ChatData struct {
 	ChatID   string
-	Chats    []dbgen.Chat
 	Messages []dbgen.Message
 	Nav      layouts.NavData
 }
@@ -95,90 +92,20 @@ func chatSignalsJSON(data ChatData) string {
 
 templ Chat(data ChatData) {
 	@layouts.Layout(data.Nav) {
-		<div class="flex h-full overflow-hidden" data-signals={ chatSignalsJSON(data) }>
-			<!-- Chat list sidebar -->
-			<div class="w-72 border-r flex-col bg-muted/10 hidden md:flex">
-				@chatSidebarHeader()
-				@ChatSidebarContent(data)
-			</div>
-			<!-- Main chat area -->
-			<div class="flex-1 flex flex-col min-w-0">
-				if data.ChatID == "" {
-					@chatEmptyState()
+		<div class="flex-1 flex flex-col min-w-0 overflow-hidden" data-signals={ chatSignalsJSON(data) }>
+			if data.ChatID == "" {
+				@chatEmptyState()
+			}
+			<div id="messages" class={ "flex-1 overflow-y-auto p-4 space-y-4", templ.KV("hidden", data.ChatID == "") }>
+				for _, msg := range data.Messages {
+					@ChatBubble(msg)
 				}
-				<div id="messages" class={ "flex-1 overflow-y-auto p-4 space-y-4", templ.KV("hidden", data.ChatID == "") }>
-					for _, msg := range data.Messages {
-						@ChatBubble(msg)
-					}
-				</div>
-				<div class="border-t p-4">
-					@chatInputForm()
-				</div>
+			</div>
+			<div class="border-t p-4">
+				@chatInputForm()
 			</div>
 		</div>
 	}
-}
-
-templ chatSidebarHeader() {
-	<div class="p-4 border-b space-y-3">
-		<div class="flex items-center justify-between">
-			<h2 class="text-lg font-semibold">Chats</h2>
-			@button.Button(button.Props{Size: button.SizeIcon, Href: "/chat"}) {
-				@icon.Plus(icon.Props{Size: 18})
-			}
-		</div>
-		<div class="relative">
-			<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-				@icon.Search(icon.Props{Size: 16, Class: "text-muted-foreground"})
-			</div>
-			@input.Input(input.Props{Placeholder: "Search conversations...", Class: "pl-9 h-9"})
-		</div>
-	</div>
-}
-
-templ ChatSidebarContent(data ChatData) {
-	<div id="chat-sidebar" class="flex-1 overflow-y-auto">
-		<div class="p-2 space-y-4">
-			if len(data.Chats) == 0 {
-				<p class="text-xs text-muted-foreground px-2 py-4">No conversations yet.</p>
-			}
-			for _, g := range groupChats(data.Chats) {
-				@chatConversationGroup(g, data.ChatID)
-			}
-		</div>
-	</div>
-}
-
-templ chatConversationGroup(g chatGroup, activeChatID string) {
-	<div>
-		<h3 class="text-xs font-medium text-muted-foreground px-2 mb-2">{ g.Label }</h3>
-		<div class="space-y-1">
-			for _, chat := range g.Chats {
-				@chatConversationItem(chat, activeChatID)
-			}
-		</div>
-	</div>
-}
-
-templ chatConversationItem(chat dbgen.Chat, activeChatID string) {
-	<div class="group relative flex items-center">
-		<a
-			href={ templ.SafeURL(fmt.Sprintf("/chat?id=%s", chat.ID)) }
-			class={ "flex-1 min-w-0 block text-left px-3 py-2 rounded-lg transition-colors",
-				templ.KV("bg-background", chat.ID == activeChatID),
-				templ.KV("hover:bg-background", chat.ID != activeChatID) }
-		>
-			<p class="text-sm font-medium truncate">{ chat.Title }</p>
-			<span class="text-xs text-muted-foreground">{ chatTimeAgo(chat.UpdatedAt) }</span>
-		</a>
-		<button
-			class="shrink-0 p-1 mr-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-			data-on:click={ fmt.Sprintf("@delete('/api/chat/%s')", chat.ID) }
-			title="Delete chat"
-		>
-			@icon.Trash2(icon.Props{Size: 14})
-		</button>
-	</div>
 }
 
 templ chatEmptyState() {
@@ -189,7 +116,7 @@ templ chatEmptyState() {
 			</div>
 			<h3 class="text-lg font-semibold mb-2">Start a New Conversation</h3>
 			<p class="text-sm text-muted-foreground mb-6">
-				Select a conversation from the sidebar or type a message below.
+				Type a message below to get started.
 			</p>
 			<div class="p-4 bg-muted/50 rounded-lg">
 				<h4 class="text-sm font-medium mb-2">Quick Templates</h4>

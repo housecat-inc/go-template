@@ -25,9 +25,40 @@ const llmModel = "claude-sonnet-4-5-20250929"
 func (s *Server) HandleChat(c echo.Context) error {
 	r := c.Request()
 	userEmail := c.Get("userEmail").(string)
-	userID := c.Get("userID").(string)
 	logoutURL := c.Get("logoutURL").(string)
 	chatID := c.QueryParam("id")
+
+	nav := layouts.NavData{
+		Title:     s.Hostname,
+		UserEmail: userEmail,
+		LoginURL:  loginURLForRequest(r),
+		LogoutURL: logoutURL,
+	}
+
+	var msgs []dbgen.Message
+	if chatID != "" {
+		q := dbgen.New(s.DB)
+		var err error
+		msgs, err = q.ListMessagesByChat(r.Context(), chatID)
+		if err != nil {
+			slog.Error("list messages", "error", err)
+		}
+	}
+
+	data := pages.ChatData{
+		ChatID:   chatID,
+		Messages: msgs,
+		Nav:      nav,
+	}
+
+	return pages.Chat(data).Render(r.Context(), c.Response())
+}
+
+func (s *Server) HandleChats(c echo.Context) error {
+	r := c.Request()
+	userEmail := c.Get("userEmail").(string)
+	userID := c.Get("userID").(string)
+	logoutURL := c.Get("logoutURL").(string)
 
 	nav := layouts.NavData{
 		Title:     s.Hostname,
@@ -45,23 +76,12 @@ func (s *Server) HandleChat(c echo.Context) error {
 		slog.Error("list chats", "error", err)
 	}
 
-	var msgs []dbgen.Message
-	if chatID != "" {
-		msgs, err = q.ListMessagesByChat(r.Context(), chatID)
-		if err != nil {
-			slog.Error("list messages", "error", err)
-		}
+	data := pages.ChatsData{
+		Chats: chats,
+		Nav:   nav,
 	}
 
-	data := pages.ChatData{
-		ChatID:   chatID,
-		Chats:    chats,
-		Messages: msgs,
-		Nav:      nav,
-	}
-
-	component := pages.Chat(data)
-	return component.Render(r.Context(), c.Response())
+	return pages.Chats(data).Render(r.Context(), c.Response())
 }
 
 type chatSignals struct {
@@ -271,16 +291,6 @@ func (s *Server) HandleChatSend(c echo.Context) error {
 		)
 	}
 
-	chats, err := q.ListChatsByUser(ctx, dbgen.ListChatsByUserParams{
-		UserID: userID,
-		Limit:  50,
-	})
-	if err == nil {
-		sse.PatchElementTempl(
-			pages.ChatSidebarContent(pages.ChatData{ChatID: signals.ChatID, Chats: chats}),
-		)
-	}
-
 	return nil
 }
 
@@ -289,9 +299,6 @@ func (s *Server) HandleChatDelete(c echo.Context) error {
 	ctx := r.Context()
 	userID := c.Get("userID").(string)
 	chatID := c.Param("id")
-
-	var signals chatSignals
-	_ = datastar.ReadSignals(r, &signals)
 
 	q := dbgen.New(s.DB)
 	if err := q.SoftDeleteChat(ctx, dbgen.SoftDeleteChatParams{
@@ -303,24 +310,7 @@ func (s *Server) HandleChatDelete(c echo.Context) error {
 	}
 
 	sse := datastar.NewSSE(c.Response(), r)
-
-	if signals.ChatID == chatID {
-		sse.Redirect("/chat")
-		return nil
-	}
-
-	chats, err := q.ListChatsByUser(ctx, dbgen.ListChatsByUserParams{
-		UserID: userID,
-		Limit:  50,
-	})
-	if err != nil {
-		slog.Error("list chats", "error", err)
-	}
-
-	sse.PatchElementTempl(
-		pages.ChatSidebarContent(pages.ChatData{ChatID: signals.ChatID, Chats: chats}),
-	)
-
+	sse.Redirect("/chats")
 	return nil
 }
 
