@@ -2,60 +2,253 @@ package pages
 
 import (
 	"fmt"
+	"time"
 
 	"srv.housecat.com/db/dbgen"
-	"srv.housecat.com/ui/layouts"
+	"srv.housecat.com/ui/components/button"
+	"srv.housecat.com/ui/components/card"
+	"srv.housecat.com/ui/components/dialog"
+	"srv.housecat.com/ui/components/dropdown"
+	"srv.housecat.com/ui/components/icon"
+	"srv.housecat.com/ui/components/input"
+	"srv.housecat.com/ui/components/popover"
+	"srv.housecat.com/ui/components/sheet"
 )
 
 type ChatData struct {
 	ChatID   string
 	Chats    []dbgen.Chat
 	Messages []dbgen.Message
-	Nav      layouts.NavData
+	Nav      ChatNav
+}
+
+type ChatNav struct {
+	Hostname  string
+	LogoutURL string
+	UserEmail string
+}
+
+func timeAgo(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		m := int(d.Minutes())
+		return fmt.Sprintf("%dm ago", m)
+	case d < 24*time.Hour:
+		h := int(d.Hours())
+		return fmt.Sprintf("%dh ago", h)
+	default:
+		days := int(d.Hours() / 24)
+		return fmt.Sprintf("%dd ago", days)
+	}
+}
+
+type chatGroup struct {
+	Chats []dbgen.Chat
+	Label string
+}
+
+func groupChats(chats []dbgen.Chat) []chatGroup {
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+	weekStart := todayStart.AddDate(0, 0, -7)
+
+	var today, yesterday, week, older []dbgen.Chat
+	for _, c := range chats {
+		switch {
+		case !c.UpdatedAt.Before(todayStart):
+			today = append(today, c)
+		case !c.UpdatedAt.Before(yesterdayStart):
+			yesterday = append(yesterday, c)
+		case !c.UpdatedAt.Before(weekStart):
+			week = append(week, c)
+		default:
+			older = append(older, c)
+		}
+	}
+
+	var groups []chatGroup
+	if len(today) > 0 {
+		groups = append(groups, chatGroup{Label: "Today", Chats: today})
+	}
+	if len(yesterday) > 0 {
+		groups = append(groups, chatGroup{Label: "Yesterday", Chats: yesterday})
+	}
+	if len(week) > 0 {
+		groups = append(groups, chatGroup{Label: "Previous 7 Days", Chats: week})
+	}
+	if len(older) > 0 {
+		groups = append(groups, chatGroup{Label: "Older", Chats: older})
+	}
+	return groups
 }
 
 templ Chat(data ChatData) {
-	@layouts.Layout(data.Nav) {
-		<div class="flex gap-6 h-[calc(100vh-7rem)]">
-			<aside class="w-56 shrink-0 border-r pr-4 overflow-y-auto hidden md:block">
-				<div class="flex items-center justify-between mb-3">
-					<h2 class="text-sm font-semibold">Chats</h2>
-					<a href="/chat" class="text-xs text-muted-foreground hover:text-foreground">+ New</a>
-				</div>
-				if len(data.Chats) == 0 {
-					<p class="text-xs text-muted-foreground">No chats yet.</p>
-				}
-				<nav class="space-y-1">
-					for _, chat := range data.Chats {
-						<a
-							href={ templ.SafeURL(fmt.Sprintf("/chat?id=%s", chat.ID)) }
-							class={ "block truncate rounded-md px-2 py-1.5 text-sm",
-								templ.KV("bg-muted font-medium", chat.ID == data.ChatID),
-								templ.KV("text-muted-foreground hover:bg-muted/50", chat.ID != data.ChatID) }
-						>
-							{ chat.Title }
-						</a>
-					}
-				</nav>
-			</aside>
-			<div class="flex-1 flex flex-col min-w-0">
-				<div id="messages" class="flex-1 overflow-y-auto space-y-4 pb-4">
-					if len(data.Messages) == 0 {
-						<p class="text-muted-foreground text-sm">Send a message to start chatting.</p>
-					}
-					for _, msg := range data.Messages {
-						<div class={ "flex", templ.KV("justify-end", msg.Role == "user"), templ.KV("justify-start", msg.Role != "user") }>
-							<div class={ "max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap",
-								templ.KV("bg-primary text-primary-foreground", msg.Role == "user"),
-								templ.KV("bg-muted text-foreground", msg.Role == "model"),
-								templ.KV("bg-blue-100 dark:bg-blue-900 text-foreground", msg.Role == "tool"),
-								templ.KV("bg-yellow-100 dark:bg-yellow-900 text-foreground italic", msg.Role == "harness") }>
-								{ msg.Content }
-							</div>
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Chat - { data.Nav.Hostname }</title>
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+		</head>
+		<body class="bg-background text-foreground min-h-screen">
+			@dialog.Script()
+			@popover.Script()
+			@dropdown.Script()
+			<section class="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
+				@sheet.Sheet(sheet.Props{Side: sheet.SideLeft}) {
+					@card.Card(card.Props{Class: "w-full max-w-6xl h-[500px] md:h-[600px] lg:h-[700px] overflow-hidden flex relative"}) {
+						<!-- Mobile menu trigger -->
+						@sheet.Trigger(sheet.TriggerProps{Class: "md:hidden absolute top-4 left-4 z-10"}) {
+							@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon}) {
+								@icon.Menu(icon.Props{Size: 20})
+							}
+						}
+						<!-- Desktop sidebar -->
+						<div class="hidden md:block">
+							@chatSidebar(data)
 						</div>
+						if data.ChatID != "" {
+							@chatConversation(data)
+						} else {
+							@chatEmptyState()
+						}
 					}
+					<!-- Mobile sidebar drawer -->
+					@sheet.Content(sheet.ContentProps{HideCloseButton: true}) {
+						@chatSidebarDrawer(data)
+					}
+				}
+			</section>
+			@chatScript()
+		</body>
+	</html>
+}
+
+templ chatSidebar(data ChatData) {
+	<div class="w-80 border-r flex flex-col bg-muted/10 h-full">
+		@chatSidebarHeader(data)
+		@chatSidebarContent(data)
+	</div>
+}
+
+templ chatSidebarDrawer(data ChatData) {
+	<div class="flex flex-col h-full">
+		@chatSidebarHeader(data)
+		@chatSidebarContent(data)
+	</div>
+}
+
+templ chatSidebarHeader(data ChatData) {
+	<div class="p-4 border-b space-y-3">
+		<div class="flex items-center justify-between">
+			<h2 class="text-lg font-semibold">Conversations</h2>
+			@button.Button(button.Props{Size: button.SizeIcon, Href: "/chat"}) {
+				@icon.Plus(icon.Props{Size: 18})
+			}
+		</div>
+		<div class="relative">
+			<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+				@icon.Search(icon.Props{Size: 16, Class: "text-muted-foreground"})
+			</div>
+			@input.Input(input.Props{Placeholder: "Search conversations...", Class: "pl-9 h-9"})
+		</div>
+		<div class="flex items-center gap-2 text-xs text-muted-foreground">
+			if data.Nav.UserEmail != "" {
+				<span>{ data.Nav.UserEmail }</span>
+				<span>·</span>
+				<a href={ templ.SafeURL(data.Nav.LogoutURL) } class="hover:text-foreground">Logout</a>
+			}
+			<span>·</span>
+			<a href="/home" class="hover:text-foreground">Home</a>
+		</div>
+	</div>
+}
+
+templ chatSidebarContent(data ChatData) {
+	<div class="flex-1 overflow-y-auto">
+		<div class="p-2 space-y-4">
+			if len(data.Chats) == 0 {
+				<p class="text-xs text-muted-foreground px-2 py-4">No conversations yet.</p>
+			}
+			for _, g := range groupChats(data.Chats) {
+				@chatConversationGroup(g, data.ChatID)
+			}
+		</div>
+	</div>
+}
+
+templ chatConversationGroup(g chatGroup, activeChatID string) {
+	<div>
+		<h3 class="text-xs font-medium text-muted-foreground px-2 mb-2">{ g.Label }</h3>
+		<div class="space-y-1">
+			for _, chat := range g.Chats {
+				@chatConversationItem(chat, activeChatID)
+			}
+		</div>
+	</div>
+}
+
+templ chatConversationItem(chat dbgen.Chat, activeChatID string) {
+	<div class="group relative">
+		<a
+			href={ templ.SafeURL(fmt.Sprintf("/chat?id=%s", chat.ID)) }
+			class={ "w-full block text-left px-3 py-2 rounded-lg transition-colors",
+				templ.KV("bg-background", chat.ID == activeChatID),
+				templ.KV("hover:bg-background", chat.ID != activeChatID) }
+		>
+			<div class="flex items-start justify-between gap-2">
+				<div class="flex-1 min-w-0">
+					<p class="text-sm font-medium truncate">{ chat.Title }</p>
+					<div class="flex items-center gap-2 mt-1">
+						<span class="text-xs text-muted-foreground">{ timeAgo(chat.UpdatedAt) }</span>
+					</div>
 				</div>
-				<form id="chat-form" class="flex gap-2 pt-4 border-t">
+			</div>
+		</a>
+		<div class="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "h-7 w-7"}) {
+						@icon.MessageCircleMore(icon.Props{Size: 14})
+					}
+				}
+				@dropdown.Content(dropdown.ContentProps{Class: "w-40"}) {
+					@dropdown.Item() {
+						@icon.Pencil(icon.Props{Size: 14, Class: "mr-2"})
+						Rename
+					}
+					@dropdown.Item() {
+						@icon.Share(icon.Props{Size: 14, Class: "mr-2"})
+						Share
+					}
+					@dropdown.Separator()
+					@dropdown.Item() {
+						@icon.Trash2(icon.Props{Size: 14, Class: "mr-2"})
+						Delete
+					}
+				}
+			}
+		</div>
+	</div>
+}
+
+templ chatEmptyState() {
+	<div class="flex-1 flex items-center justify-center p-8 pt-16 md:pt-8">
+		<div class="text-center max-w-md">
+			<div class="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+				@icon.MessageSquare(icon.Props{Size: 32, Class: "text-muted-foreground"})
+			</div>
+			<h3 class="text-lg font-semibold mb-2">Start a New Conversation</h3>
+			<p class="text-sm text-muted-foreground mb-6">
+				Select a conversation from the sidebar or type a message to begin chatting.
+			</p>
+			<div class="mt-4">
+				<form id="chat-form" class="flex gap-2">
 					<input
 						id="chat-input"
 						type="text"
@@ -71,106 +264,219 @@ templ Chat(data ChatData) {
 					</button>
 				</form>
 			</div>
+			<div class="mt-8 p-4 bg-muted/50 rounded-lg">
+				<h4 class="text-sm font-medium mb-2">Quick Templates</h4>
+				<div class="grid grid-cols-2 gap-2">
+					@chatTemplateButton("Code Review", "code")
+					@chatTemplateButton("Writing Help", "writing")
+					@chatTemplateButton("Data Analysis", "data")
+					@chatTemplateButton("Learning", "learning")
+				</div>
+			</div>
 		</div>
-		<script>
-			(function() {
-				const messages = document.getElementById('messages');
-				const form = document.getElementById('chat-form');
-				const input = document.getElementById('chat-input');
-				let chatID = new URLSearchParams(window.location.search).get('id') || '';
-				let streaming = false;
+	</div>
+}
 
-				// Build history from server-rendered messages
-				let history = [];
-				document.querySelectorAll('#messages > div.flex').forEach(function(el) {
-					const isUser = el.classList.contains('justify-end');
-					const bubble = el.querySelector('div');
-					if (bubble) {
-						history.push({role: isUser ? 'user' : 'assistant', content: bubble.textContent});
-					}
-				});
+templ chatTemplateButton(label, category string) {
+	<button
+		class="chat-template flex items-center gap-2 p-2 text-sm bg-background border rounded-lg hover:bg-muted transition-colors"
+		data-prompt={ label }
+	>
+		switch category {
+			case "code":
+				@icon.Code(icon.Props{Size: 14})
+			case "writing":
+				@icon.FileText(icon.Props{Size: 14})
+			case "data":
+				@icon.ChartBar(icon.Props{Size: 14})
+			default:
+				@icon.GraduationCap(icon.Props{Size: 14})
+		}
+		{ label }
+	</button>
+}
 
-				// Scroll to bottom on load
-				messages.scrollTop = messages.scrollHeight;
+templ chatConversation(data ChatData) {
+	<div class="flex-1 flex flex-col min-w-0">
+		<div id="messages" class="flex-1 overflow-y-auto p-4 space-y-4">
+			for _, msg := range data.Messages {
+				@chatBubble(msg)
+			}
+		</div>
+		<div class="border-t p-4">
+			<form id="chat-form" class="flex gap-2">
+				<input
+					id="chat-input"
+					type="text"
+					placeholder="Type a message…"
+					autocomplete="off"
+					class="flex-1 rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				/>
+				<button
+					type="submit"
+					class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					Send
+				</button>
+			</form>
+		</div>
+	</div>
+}
 
-				function addBubble(role, text) {
-					const isUser = role === 'user';
-					const wrap = document.createElement('div');
-					wrap.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
-					const bubble = document.createElement('div');
-					bubble.className = 'max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ' +
-						(isUser ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground');
-					bubble.textContent = text;
-					wrap.appendChild(bubble);
-					const placeholder = messages.querySelector('p.text-muted-foreground');
-					if (placeholder) placeholder.remove();
-					messages.appendChild(wrap);
-					messages.scrollTop = messages.scrollHeight;
-					return bubble;
+templ chatBubble(msg dbgen.Message) {
+	<div class={ "flex", templ.KV("justify-end", msg.Role == "user"), templ.KV("justify-start", msg.Role != "user") }>
+		<div
+			class={ "max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap",
+				templ.KV("bg-primary text-primary-foreground", msg.Role == "user"),
+				templ.KV("bg-muted text-foreground", msg.Role == "model"),
+				templ.KV("bg-blue-100 dark:bg-blue-900 text-foreground", msg.Role == "tool"),
+				templ.KV("bg-yellow-100 dark:bg-yellow-900 text-foreground italic", msg.Role == "harness") }
+		>
+			{ msg.Content }
+		</div>
+	</div>
+}
+
+templ chatScript() {
+	<script>
+	(function() {
+		const messages = document.getElementById('messages');
+		const form = document.getElementById('chat-form');
+		const input = document.getElementById('chat-input');
+		if (!form || !input) return;
+
+		let chatID = new URLSearchParams(window.location.search).get('id') || '';
+		let streaming = false;
+
+		// Build history from server-rendered messages
+		let history = [];
+		if (messages) {
+			messages.querySelectorAll(':scope > div.flex').forEach(function(el) {
+				const isUser = el.classList.contains('justify-end');
+				const bubble = el.querySelector('div');
+				if (bubble) {
+					history.push({role: isUser ? 'user' : 'assistant', content: bubble.textContent});
 				}
+			});
+			messages.scrollTop = messages.scrollHeight;
+		}
 
-				form.addEventListener('submit', async function(e) {
-					e.preventDefault();
-					const text = input.value.trim();
-					if (!text || streaming) return;
-					streaming = true;
-					input.value = '';
-					form.querySelector('button').disabled = true;
+		// Template buttons fill the input
+		document.querySelectorAll('.chat-template').forEach(function(btn) {
+			btn.addEventListener('click', function() {
+				input.value = 'Help me with: ' + btn.dataset.prompt;
+				input.focus();
+			});
+		});
 
-					addBubble('user', text);
-					history.push({role: 'user', content: text});
+		function getOrCreateMessages() {
+			let el = document.getElementById('messages');
+			if (el) return el;
+			// On empty state, we need to transform the page
+			const cardEl = document.querySelector('[class*="overflow-hidden flex relative"]');
+			if (!cardEl) return null;
+			// Remove empty state
+			const emptyState = cardEl.querySelector('.flex-1.flex.items-center');
+			if (emptyState) emptyState.remove();
+			// Create conversation area
+			const wrapper = document.createElement('div');
+			wrapper.className = 'flex-1 flex flex-col min-w-0';
+			const msgArea = document.createElement('div');
+			msgArea.id = 'messages';
+			msgArea.className = 'flex-1 overflow-y-auto p-4 space-y-4';
+			const inputArea = document.createElement('div');
+			inputArea.className = 'border-t p-4';
+			inputArea.appendChild(form.parentElement === inputArea ? form : form);
+			// Move form into the new area
+			const formParent = form.parentElement;
+			inputArea.appendChild(form);
+			if (formParent && formParent !== inputArea) {
+				formParent.remove();
+			}
+			wrapper.appendChild(msgArea);
+			wrapper.appendChild(inputArea);
+			cardEl.appendChild(wrapper);
+			return msgArea;
+		}
 
-					const bubble = addBubble('assistant', '');
-					let fullText = '';
+		function addBubble(role, text) {
+			const msgEl = getOrCreateMessages();
+			if (!msgEl) return null;
+			const isUser = role === 'user';
+			const wrap = document.createElement('div');
+			wrap.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
+			const bubble = document.createElement('div');
+			bubble.className = 'max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ' +
+				(isUser ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground');
+			bubble.textContent = text;
+			wrap.appendChild(bubble);
+			msgEl.appendChild(wrap);
+			msgEl.scrollTop = msgEl.scrollHeight;
+			return bubble;
+		}
 
-					try {
-						const resp = await fetch('/api/chat', {
-							method: 'POST',
-							headers: {'Content-Type': 'application/json'},
-							body: JSON.stringify({chat_id: chatID, messages: history})
-						});
-						if (!resp.ok) {
-							bubble.textContent = 'Error: ' + resp.statusText;
-							return;
-						}
-						const reader = resp.body.getReader();
-						const decoder = new TextDecoder();
-						let buf = '';
+		form.addEventListener('submit', async function(e) {
+			e.preventDefault();
+			const text = input.value.trim();
+			if (!text || streaming) return;
+			streaming = true;
+			input.value = '';
+			form.querySelector('button[type="submit"]').disabled = true;
 
-						while (true) {
-							const {done, value} = await reader.read();
-							if (done) break;
-							buf += decoder.decode(value, {stream: true});
-							const lines = buf.split('\n');
-							buf = lines.pop();
-							for (const line of lines) {
-								if (!line.startsWith('data: ')) continue;
-								const data = line.slice(6);
-								if (data === '[DONE]') continue;
-								try {
-									const parsed = JSON.parse(data);
-									if (parsed.chat_id && !chatID) {
-										chatID = parsed.chat_id;
-										window.history.replaceState(null, '', '/chat?id=' + chatID);
-									}
-									if (parsed.text) {
-										fullText += parsed.text;
-										bubble.textContent = fullText;
-										messages.scrollTop = messages.scrollHeight;
-									}
-								} catch(ex) {}
-							}
-						}
-						history.push({role: 'assistant', content: fullText});
-					} catch(err) {
-						bubble.textContent = 'Error: ' + err.message;
-					} finally {
-						streaming = false;
-						form.querySelector('button').disabled = false;
-						input.focus();
-					}
+			addBubble('user', text);
+			history.push({role: 'user', content: text});
+
+			const bubble = addBubble('assistant', '');
+			let fullText = '';
+
+			try {
+				const resp = await fetch('/api/chat', {
+					method: 'POST',
+					headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({chat_id: chatID, messages: history})
 				});
-			})();
-		</script>
-	}
+				if (!resp.ok) {
+					if (bubble) bubble.textContent = 'Error: ' + resp.statusText;
+					return;
+				}
+				const reader = resp.body.getReader();
+				const decoder = new TextDecoder();
+				let buf = '';
+
+				while (true) {
+					const {done, value} = await reader.read();
+					if (done) break;
+					buf += decoder.decode(value, {stream: true});
+					const lines = buf.split('\n');
+					buf = lines.pop();
+					for (const line of lines) {
+						if (!line.startsWith('data: ')) continue;
+						const data = line.slice(6);
+						if (data === '[DONE]') continue;
+						try {
+							const parsed = JSON.parse(data);
+							if (parsed.chat_id && !chatID) {
+								chatID = parsed.chat_id;
+								window.history.replaceState(null, '', '/chat?id=' + chatID);
+							}
+							if (parsed.text && bubble) {
+								fullText += parsed.text;
+								bubble.textContent = fullText;
+								const msgEl = document.getElementById('messages');
+								if (msgEl) msgEl.scrollTop = msgEl.scrollHeight;
+							}
+						} catch(ex) {}
+					}
+				}
+				history.push({role: 'assistant', content: fullText});
+			} catch(err) {
+				if (bubble) bubble.textContent = 'Error: ' + err.message;
+			} finally {
+				streaming = false;
+				form.querySelector('button[type="submit"]').disabled = false;
+				input.focus();
+			}
+		});
+	})();
+	</script>
 }
