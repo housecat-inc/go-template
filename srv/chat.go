@@ -135,16 +135,15 @@ func (s *Server) HandleChatSend(c echo.Context) error {
 
 	isNewConversation := len(signals.Messages) == 1
 	if isNewConversation {
-		sse.PatchElementTempl(
-			pages.ChatMainArea(pages.ChatData{ChatID: signals.ChatID, Messages: []dbgen.Message{{Content: signals.Input, Role: "user"}}}),
-		)
-	} else {
-		sse.PatchElementTempl(
-			pages.ChatBubble(dbgen.Message{Content: signals.Input, Role: "user"}),
-			datastar.WithSelectorID("messages"),
-			datastar.WithModeAppend(),
-		)
+		sse.RemoveElementByID("empty-state")
+		sse.ExecuteScript("document.getElementById('messages').classList.remove('hidden')")
 	}
+
+	sse.PatchElementTempl(
+		pages.ChatBubble(dbgen.Message{Content: signals.Input, Role: "user"}),
+		datastar.WithSelectorID("messages"),
+		datastar.WithModeAppend(),
+	)
 
 	sse.MarshalAndPatchSignals(map[string]any{
 		"input":  "",
