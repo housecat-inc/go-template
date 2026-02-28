@@ -23,10 +23,18 @@ if [ "$INSTALLATION_ID" = "null" ] || [ -z "$INSTALLATION_ID" ]; then
   exit 1
 fi
 
-# Get installation token
+# Get installation token (optionally scoped to a single repo)
+REPO="${GH_APP_REPO:-}"
+if [ -n "$REPO" ]; then
+  BODY="{\"repositories\":[\"${REPO}\"]}"
+else
+  BODY="{}"
+fi
+
 TOKEN=$(curl -s -X POST \
   -H "Authorization: Bearer $JWT" \
   -H "Accept: application/vnd.github+json" \
+  -d "$BODY" \
   "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" | jq -r '.token')
 
 if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
