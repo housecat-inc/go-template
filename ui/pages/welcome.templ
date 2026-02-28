@@ -12,13 +12,13 @@ import (
 )
 
 type PageData struct {
-	Hostname      string
-	Now           string
-	UserEmail     string
 	ActivityCount int64
+	Headers       []HeaderEntry
+	Hostname      string
 	LoginURL      string
 	LogoutURL     string
-	Headers       []HeaderEntry
+	Now           string
+	UserEmail     string
 }
 
 type HeaderEntry struct {

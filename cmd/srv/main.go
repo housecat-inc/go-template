@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/lmittmann/tint"
 
 	"srv.housecat.com/srv"
@@ -33,8 +34,8 @@ func run() error {
 	oauthCfg := srv.OAuthConfig{
 		ClientID:      os.Getenv("HOUSECAT_CLIENT_ID"),
 		ClientSecret:  os.Getenv("HOUSECAT_CLIENT_SECRET"),
-		SessionSecret: os.Getenv("SESSION_SECRET"),
 		Issuer:        os.Getenv("OAUTH_ISSUER"),
+		SessionSecret: os.Getenv("SESSION_SECRET"),
 	}
 	if oauthCfg.Issuer == "" && oauthCfg.ClientID != "" {
 		oauthCfg.Issuer = "https://auth.housecat.com"
@@ -42,7 +43,7 @@ func run() error {
 
 	server, err := srv.New("db.sqlite3", hostname, oauthCfg)
 	if err != nil {
-		return fmt.Errorf("create server: %w", err)
+		return errors.Wrap(err, "create server")
 	}
 	return server.Serve(*flagListenAddr)
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/labstack/echo/v4"
 	"golang.org/x/oauth2"
@@ -29,17 +29,17 @@ import (
 type OAuthConfig struct {
 	ClientID      string
 	ClientSecret  string
+	Issuer        string
 	SessionSecret string
-	Issuer        string // e.g. "https://auth.housecat.com"
 }
 
 type Server struct {
+	AssetsDir    string
 	DB           *sql.DB
 	Hostname     string
-	AssetsDir    string
 	OAuth        OAuthConfig
-	oidcProvider *oidc.Provider
 	oauth2Config *oauth2.Config
+	oidcProvider *oidc.Provider
 }
 
 func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
@@ -55,7 +55,7 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
 	}
 	if oauthCfg.ClientID != "" {
 		if err := srv.setUpOIDC(context.Background()); err != nil {
-			return nil, fmt.Errorf("setup oidc: %w", err)
+			return nil, errors.Wrap(err, "setup oidc")
 		}
 	}
 	return srv, nil
@@ -64,7 +64,7 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
 func (s *Server) setUpOIDC(ctx context.Context) error {
 	provider, err := oidc.NewProvider(ctx, s.OAuth.Issuer)
 	if err != nil {
-		return fmt.Errorf("oidc discovery: %w", err)
+		return errors.Wrap(err, "oidc discovery")
 	}
 	s.oidcProvider = provider
 	s.oauth2Config = &oauth2.Config{
@@ -72,7 +72,6 @@ func (s *Server) setUpOIDC(ctx context.Context) error {
 		ClientSecret: s.OAuth.ClientSecret,
 		Endpoint:     provider.Endpoint(),
 		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
-		// RedirectURL is set per-request based on the Host header
 	}
 	return nil
 }
@@ -83,7 +82,6 @@ func (s *Server) HandleRoot(c echo.Context) error {
 	userEmail := strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
 	logoutURL := "/__exe.dev/logout?redirect=/"
 
-	// Check session cookie if no exe.dev headers
 	if userID == "" && s.DB != nil {
 		if cookie, err := r.Cookie("session_id"); err == nil {
 			q := dbgen.New(s.DB)
@@ -170,11 +168,11 @@ func mainDomainFromHost(h string) string {
 func (s *Server) setUpDatabase(dbPath string) error {
 	wdb, err := db.Open(dbPath)
 	if err != nil {
-		return fmt.Errorf("failed to open db: %w", err)
+		return errors.Wrap(err, "open db")
 	}
 	s.DB = wdb
 	if err := db.RunMigrations(wdb); err != nil {
-		return fmt.Errorf("failed to run migrations: %w", err)
+		return errors.Wrap(err, "run migrations")
 	}
 	return nil
 }
@@ -231,7 +229,6 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
 
-	// Verify state
 	stateCookie, err := r.Cookie("oauth_state")
 	if err != nil || stateCookie.Value == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "missing state cookie")
@@ -239,7 +236,6 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 	if c.QueryParam("state") != stateCookie.Value {
 		return echo.NewHTTPError(http.StatusBadRequest, "state mismatch")
 	}
-	// Clear state cookie
 	c.SetCookie(&http.Cookie{
 		Name:   "oauth_state",
 		Value:  "",
@@ -247,7 +243,6 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 		MaxAge: -1,
 	})
 
-	// Exchange code for token
 	cfg := *s.oauth2Config
 	cfg.RedirectURL = s.callbackURL(r)
 	token, err := cfg.Exchange(ctx, c.QueryParam("code"))
@@ -256,7 +251,6 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "failed to exchange code")
 	}
 
-	// Extract and verify ID token
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest, "no id_token in response")
@@ -276,7 +270,6 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to parse claims")
 	}
 
-	// Create session
 	sessionID, err := randomHex(32)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate session")

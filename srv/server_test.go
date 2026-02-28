@@ -5,10 +5,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServerSetupAndHandlers(t *testing.T) {
@@ -16,95 +17,66 @@ func TestServerSetupAndHandlers(t *testing.T) {
 	t.Cleanup(func() { os.Remove(tempDB) })
 
 	server, err := New(tempDB, "test-hostname", OAuthConfig{})
-	if err != nil {
-		t.Fatalf("failed to create server: %v", err)
-	}
+	r := require.New(t)
+	r.NoError(err)
 
 	e := echo.New()
 
 	t.Run("root endpoint unauthenticated", func(t *testing.T) {
+		a := assert.New(t)
+		r := require.New(t)
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		w := httptest.NewRecorder()
 		c := e.NewContext(req, w)
 
-		if err := server.HandleRoot(c); err != nil {
-			t.Fatalf("HandleRoot error: %v", err)
-		}
+		r.NoError(server.HandleRoot(c))
 
 		body := w.Body.String()
-		if !strings.Contains(body, "Sign in") {
-			t.Errorf("expected sign-in page for unauthenticated users")
-		}
-		if !strings.Contains(body, "exe.dev") {
-			t.Errorf("expected exe.dev login button")
-		}
+		a.Contains(body, "Sign in")
+		a.Contains(body, "exe.dev")
 	})
 
 	t.Run("root endpoint authenticated", func(t *testing.T) {
+		a := assert.New(t)
+		r := require.New(t)
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("X-ExeDev-UserID", "user123")
 		req.Header.Set("X-ExeDev-Email", "test@example.com")
 		w := httptest.NewRecorder()
 		c := e.NewContext(req, w)
 
-		if err := server.HandleRoot(c); err != nil {
-			t.Fatalf("HandleRoot error: %v", err)
-		}
+		r.NoError(server.HandleRoot(c))
 
 		body := w.Body.String()
-		if !strings.Contains(body, "Signed in as") {
-			t.Errorf("expected page to show logged in state")
-		}
-		if !strings.Contains(body, "test@example.com") {
-			t.Error("expected page to show user email")
-		}
+		a.Contains(body, "Signed in as")
+		a.Contains(body, "test@example.com")
 	})
 
 	t.Run("activity count increments", func(t *testing.T) {
+		a := assert.New(t)
+		r := require.New(t)
+
 		req1 := httptest.NewRequest(http.MethodGet, "/", nil)
 		req1.Header.Set("X-ExeDev-UserID", "counter-test")
 		w1 := httptest.NewRecorder()
 		c1 := e.NewContext(req1, w1)
-		if err := server.HandleRoot(c1); err != nil {
-			t.Fatalf("HandleRoot error: %v", err)
-		}
-
-		body1 := w1.Body.String()
-		if !strings.Contains(body1, ">1<") {
-			t.Errorf("expected first visit to show 1 activity, got: %s", body1)
-		}
+		r.NoError(server.HandleRoot(c1))
+		a.Contains(w1.Body.String(), ">1<")
 
 		req2 := httptest.NewRequest(http.MethodGet, "/", nil)
 		req2.Header.Set("X-ExeDev-UserID", "counter-test")
 		w2 := httptest.NewRecorder()
 		c2 := e.NewContext(req2, w2)
-		if err := server.HandleRoot(c2); err != nil {
-			t.Fatalf("HandleRoot error: %v", err)
-		}
-
-		body2 := w2.Body.String()
-		if !strings.Contains(body2, ">2<") {
-			t.Errorf("expected second visit to show 2 activities, got: %s", body2)
-		}
+		r.NoError(server.HandleRoot(c2))
+		a.Contains(w2.Body.String(), ">2<")
 	})
 }
 
 func TestUtilityFunctions(t *testing.T) {
-	t.Run("mainDomainFromHost function", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected string
-		}{
-			{"example.exe.cloud:8080", "exe.cloud:8080"},
-			{"example.exe.dev", "exe.dev"},
-			{"example.exe.cloud", "exe.cloud"},
-		}
-
-		for _, test := range tests {
-			result := mainDomainFromHost(test.input)
-			if result != test.expected {
-				t.Errorf("mainDomainFromHost(%q) = %q, expected %q", test.input, result, test.expected)
-			}
-		}
+	t.Run("mainDomainFromHost", func(t *testing.T) {
+		a := assert.New(t)
+		a.Equal("exe.cloud:8080", mainDomainFromHost("example.exe.cloud:8080"))
+		a.Equal("exe.dev", mainDomainFromHost("example.exe.dev"))
+		a.Equal("exe.cloud", mainDomainFromHost("example.exe.cloud"))
 	})
 }
