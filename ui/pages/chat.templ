@@ -193,7 +193,12 @@ templ chatConversationItem(chat dbgen.Chat, activeChatID string) {
 						Share
 					}
 					@dropdown.Separator()
-					@dropdown.Item() {
+					@dropdown.Item(dropdown.ItemProps{
+						Attributes: templ.Attributes{
+							"data-on:click": fmt.Sprintf("@delete('/api/chat/%s')", chat.ID),
+						},
+						Class: "text-destructive focus:text-destructive",
+					}) {
 						@icon.Trash2(icon.Props{Size: 14, Class: "mr-2"})
 						Delete
 					}

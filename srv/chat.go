@@ -284,6 +284,46 @@ func (s *Server) HandleChatSend(c echo.Context) error {
 	return nil
 }
 
+func (s *Server) HandleChatDelete(c echo.Context) error {
+	r := c.Request()
+	ctx := r.Context()
+	userID := c.Get("userID").(string)
+	chatID := c.Param("id")
+
+	var signals chatSignals
+	_ = datastar.ReadSignals(r, &signals)
+
+	q := dbgen.New(s.DB)
+	if err := q.DeleteChat(ctx, dbgen.DeleteChatParams{
+		ID:     chatID,
+		UserID: userID,
+	}); err != nil {
+		slog.Error("delete chat", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "delete failed")
+	}
+
+	sse := datastar.NewSSE(c.Response(), r)
+
+	if signals.ChatID == chatID {
+		sse.Redirect("/chat")
+		return nil
+	}
+
+	chats, err := q.ListChatsByUser(ctx, dbgen.ListChatsByUserParams{
+		UserID: userID,
+		Limit:  50,
+	})
+	if err != nil {
+		slog.Error("list chats", "error", err)
+	}
+
+	sse.PatchElementTempl(
+		pages.ChatSidebarContent(pages.ChatData{ChatID: signals.ChatID, Chats: chats}),
+	)
+
+	return nil
+}
+
 func escapeHTML(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")

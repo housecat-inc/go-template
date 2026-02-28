@@ -64,6 +64,7 @@ func (s *Server) Serve(addr string) error {
 		e.GET("/auth/callback", s.HandleAuthCallback)
 	}
 	e.POST("/api/chat", s.HandleChatSend, s.RequireAuth)
+	e.DELETE("/api/chat/:id", s.HandleChatDelete, s.RequireAuth)
 	e.GET("/auth/logout", s.HandleAuthLogout)
 	e.Static("/assets", s.AssetsDir)
 
