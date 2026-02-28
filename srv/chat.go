@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"srv.housecat.com/db/dbgen"
+	"srv.housecat.com/ui/layouts"
 	"srv.housecat.com/ui/pages"
 )
 
@@ -36,10 +37,11 @@ func (s *Server) HandleChat(c echo.Context) error {
 	logoutURL := c.Get("logoutURL").(string)
 	chatID := c.QueryParam("id")
 
-	nav := pages.ChatNav{
-		Hostname:  s.Hostname,
-		LogoutURL: logoutURL,
+	nav := layouts.NavData{
+		Title:     s.Hostname,
 		UserEmail: userEmail,
+		LoginURL:  loginURLForRequest(r),
+		LogoutURL: logoutURL,
 	}
 
 	q := dbgen.New(s.DB)

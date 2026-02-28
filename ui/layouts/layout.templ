@@ -73,13 +73,9 @@ templ Layout(nav NavData) {
 						<aside class="hidden lg:block w-64 bg-card border-r">
 							@Sidebar()
 						</aside>
-						<div class="flex-1 flex flex-col">
-							<main class="flex-1 overflow-y-auto p-6 flex justify-center">
-								<div class="max-w-4xl w-full space-y-6">
-									{ children... }
-								</div>
-							</main>
-						</div>
+						<div class="flex-1 flex flex-col overflow-hidden">
+						{ children... }
+					</div>
 					</div>
 				</div>
 				@sheet.Content() {
