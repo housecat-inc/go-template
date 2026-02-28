@@ -62,7 +62,7 @@ func (s *Server) Serve(addr string) error {
 		e.GET("/auth/google", s.HandleAuthGoogle)
 		e.GET("/auth/callback", s.HandleAuthCallback)
 	}
-	e.POST("/auth/logout", s.HandleAuthLogout)
+	e.GET("/auth/logout", s.HandleAuthLogout)
 	e.Static("/assets", s.AssetsDir)
 
 	slog.Info("starting server", "addr", addr)
@@ -71,18 +71,6 @@ func (s *Server) Serve(addr string) error {
 
 func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
-	userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
-
-	if userID == "" {
-		if _, err := s.getSession(r); err == nil {
-			userID = "session"
-		}
-	}
-
-	if userID != "" {
-		return c.Redirect(http.StatusFound, "/home")
-	}
-
 	googleURL := ""
 	if s.oauth2Config != nil {
 		googleURL = "/auth/google"

@@ -36,7 +36,7 @@ func TestServerSetupAndHandlers(t *testing.T) {
 		a.Contains(w.Body.String(), "exe.dev")
 	})
 
-	t.Run("root authenticated redirects to /home", func(t *testing.T) {
+	t.Run("root always shows sign-in", func(t *testing.T) {
 		a := assert.New(t)
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("X-ExeDev-UserID", "user123")
@@ -46,8 +46,8 @@ func TestServerSetupAndHandlers(t *testing.T) {
 		r := require.New(t)
 		r.NoError(server.HandleRoot(c))
 
-		a.Equal(http.StatusFound, w.Code)
-		a.Equal("/home", w.Header().Get("Location"))
+		a.Equal(http.StatusOK, w.Code)
+		a.Contains(w.Body.String(), "Sign in")
 	})
 
 	t.Run("home unauthenticated redirects to /", func(t *testing.T) {

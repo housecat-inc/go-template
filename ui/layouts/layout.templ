@@ -29,11 +29,9 @@ templ Layout(nav NavData) {
 				Side: sheet.SideLeft,
 			}) {
 				<div class="min-h-screen bg-background">
-					<!-- Fixed Header (Full Width) -->
 					<header class="h-16 bg-background border-b px-6 flex items-center fixed top-0 left-0 right-0 z-40">
 						<div class="w-full flex items-center justify-between">
 							<div class="flex items-center gap-4">
-								<!-- Mobile Menu -->
 								<div class="lg:hidden">
 									@sheet.Trigger() {
 										@button.Button(button.Props{
@@ -51,15 +49,13 @@ templ Layout(nav NavData) {
 									<span class="text-sm text-muted-foreground hidden sm:inline">
 										Signed in as <strong class="text-foreground">{ nav.UserEmail }</strong>
 									</span>
-									<form method="POST" action={ templ.SafeURL(nav.LogoutURL) }>
-										@button.Button(button.Props{
-											Variant: button.VariantGhost,
-											Size:    button.SizeSm,
-											Type:    button.TypeSubmit,
-										}) {
-											Logout
-										}
-									</form>
+									@button.Button(button.Props{
+										Variant: button.VariantGhost,
+										Size:    button.SizeSm,
+										Href:    nav.LogoutURL,
+									}) {
+										Logout
+									}
 								} else {
 									<span class="text-sm text-muted-foreground hidden sm:inline">Not signed in</span>
 									@button.Button(button.Props{
@@ -73,13 +69,10 @@ templ Layout(nav NavData) {
 							</div>
 						</div>
 					</header>
-					<!-- Desktop Layout -->
 					<div class="flex h-screen pt-16">
-						<!-- Fixed Sidebar -->
 						<aside class="hidden lg:block w-64 bg-card border-r">
 							@Sidebar()
 						</aside>
-						<!-- Main Content -->
 						<div class="flex-1 flex flex-col">
 							<main class="flex-1 overflow-y-auto p-6 flex justify-center">
 								<div class="max-w-4xl w-full space-y-6">
@@ -89,7 +82,6 @@ templ Layout(nav NavData) {
 						</div>
 					</div>
 				</div>
-				<!-- Mobile Drawer -->
 				@sheet.Content() {
 					@Sidebar()
 				}
@@ -105,7 +97,7 @@ templ Sidebar() {
 				Variant:   button.VariantGhost,
 				FullWidth: true,
 				Class:     "justify-start",
-				Href:      "/",
+				Href:      "/home",
 			}) {
 				@icon.House(icon.Props{Size: 16})
 				Home
