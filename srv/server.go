@@ -53,6 +53,7 @@ func (s *Server) Serve(addr string) error {
 
 	e.GET("/", s.HandleRoot)
 	e.GET("/home", s.HandleHome, s.RequireAuth)
+	e.GET("/auth/exedev", s.HandleAuthExeDev)
 	if s.oauth2Config != nil {
 		e.GET("/auth/google", s.HandleAuthGoogle)
 		e.GET("/auth/callback", s.HandleAuthCallback)
@@ -72,19 +73,11 @@ func (s *Server) HandleRoot(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/home")
 	}
 
-	userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
-	userEmail := strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
-	if userID != "" && userEmail != "" {
-		if err := s.createSessionAndRedirect(c, userID, userEmail); err == nil {
-			return nil
-		}
-	}
-
 	googleURL := ""
 	if s.oauth2Config != nil {
 		googleURL = "/auth/google"
 	}
-	component := auth.SignInPage(loginURLForRequest(r), googleURL)
+	component := auth.SignInPage("/auth/exedev", googleURL)
 	return component.Render(r.Context(), c.Response())
 }
 

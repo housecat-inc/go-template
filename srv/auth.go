@@ -210,6 +210,49 @@ func loginURLForRequest(r *http.Request) string {
 	return "/__exe.dev/login?" + v.Encode()
 }
 
+func (s *Server) HandleAuthExeDev(c echo.Context) error {
+	r := c.Request()
+	userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
+	userEmail := strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
+	if userID == "" || userEmail == "" {
+		return c.Redirect(http.StatusFound, loginURLForRequest(r))
+	}
+	return s.createSessionAndRedirect(c, userID, userEmail)
+}
+
+func (s *Server) createSessionAndRedirect(c echo.Context, userID, email string) error {
+	r := c.Request()
+	ctx := r.Context()
+
+	sessionID, err := randomHex(32)
+	if err != nil {
+		return errors.Wrap(err, "generate session id")
+	}
+
+	q := dbgen.New(s.DB)
+	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	if err := q.InsertSession(ctx, dbgen.InsertSessionParams{
+		ID:        sessionID,
+		UserID:    userID,
+		Email:     email,
+		ExpiresAt: expiresAt,
+	}); err != nil {
+		return errors.Wrap(err, "insert session")
+	}
+
+	c.SetCookie(&http.Cookie{
+		Name:     "session_id",
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 60 * 60,
+	})
+
+	return c.Redirect(http.StatusFound, "/home")
+}
+
 func randomHex(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
