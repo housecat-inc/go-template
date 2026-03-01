@@ -75,7 +75,7 @@ func (s *Server) HandleRoot(c echo.Context) error {
 	if s.oauth2Config != nil {
 		googleURL = "/auth/google"
 	}
-	component := auth.SignInPage(loginURLForRequest(r), googleURL)
+	component := auth.SignInPage("/__exe.dev/login?redirect=%2Fhome", googleURL)
 	return component.Render(r.Context(), c.Response())
 }
 
