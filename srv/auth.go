@@ -2,7 +2,9 @@ package srv
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
 	"net/http"
@@ -23,6 +25,34 @@ type OAuthConfig struct {
 	ClientSecret  string
 	Issuer        string
 	SessionSecret string
+}
+
+func (s *Server) signSessionID(id string) string {
+	if s.sessionSecret == "" {
+		return id
+	}
+	mac := hmac.New(sha256.New, []byte(s.sessionSecret))
+	mac.Write([]byte(id))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return id + "." + sig
+}
+
+func (s *Server) verifySessionCookie(value string) (string, error) {
+	if s.sessionSecret == "" {
+		return value, nil
+	}
+	parts := strings.SplitN(value, ".", 2)
+	if len(parts) != 2 {
+		return "", errors.New("invalid session cookie format")
+	}
+	id, sig := parts[0], parts[1]
+	mac := hmac.New(sha256.New, []byte(s.sessionSecret))
+	mac.Write([]byte(id))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(sig), []byte(expected)) {
+		return "", errors.New("invalid session cookie signature")
+	}
+	return id, nil
 }
 
 func (s *Server) setUpOIDC(ctx context.Context) error {
@@ -48,8 +78,12 @@ func (s *Server) getSession(r *http.Request) (dbgen.Session, error) {
 	if err != nil {
 		return dbgen.Session{}, errors.Wrap(err, "no session cookie")
 	}
+	sessionID, err := s.verifySessionCookie(cookie.Value)
+	if err != nil {
+		return dbgen.Session{}, errors.Wrap(err, "verify session cookie")
+	}
 	q := dbgen.New(s.DB)
-	return q.GetSession(r.Context(), cookie.Value)
+	return q.GetSession(r.Context(), sessionID)
 }
 
 func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
@@ -124,10 +158,13 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "state mismatch")
 	}
 	c.SetCookie(&http.Cookie{
-		Name:   "oauth_state",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     "oauth_state",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
 	})
 
 	cfg := *s.oauth2Config
@@ -176,7 +213,7 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 
 	c.SetCookie(&http.Cookie{
 		Name:     "session_id",
-		Value:    sessionID,
+		Value:    s.signSessionID(sessionID),
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
@@ -191,15 +228,20 @@ func (s *Server) HandleAuthLogout(c echo.Context) error {
 	r := c.Request()
 
 	if cookie, err := r.Cookie("session_id"); err == nil && s.DB != nil {
-		q := dbgen.New(s.DB)
-		_ = q.DeleteSession(r.Context(), cookie.Value)
+		if sessionID, verr := s.verifySessionCookie(cookie.Value); verr == nil {
+			q := dbgen.New(s.DB)
+			_ = q.DeleteSession(r.Context(), sessionID)
+		}
 	}
 
 	c.SetCookie(&http.Cookie{
-		Name:   "session_id",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     "session_id",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
 	})
 
 	return c.Redirect(http.StatusFound, "/")
@@ -252,7 +294,7 @@ func (s *Server) createSessionAndRedirect(c echo.Context, userID, email string) 
 
 	c.SetCookie(&http.Cookie{
 		Name:     "session_id",
-		Value:    sessionID,
+		Value:    s.signSessionID(sessionID),
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",

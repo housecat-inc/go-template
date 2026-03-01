@@ -46,7 +46,7 @@ sudo systemctl restart srv
 
 ### Systemd hardening
 
-The production layout separates  data `/opt/srv/data` (exedv 0700) from the binary binary `/opt/srv/bin/srv` (root 0755).
+The production layout separates data `/opt/srv/data` (exedev 0700) from the binary `/opt/srv/bin/srv` (root 0755).
 
 The service file includes:
 
