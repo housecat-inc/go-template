@@ -10,7 +10,7 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/lmittmann/tint"
 
-	"srv.housecat.com/srv"
+	"github.com/housecat-inc/go-template/srv"
 )
 
 var flagListenAddr = flag.String("listen", ":8000", "address to listen on")

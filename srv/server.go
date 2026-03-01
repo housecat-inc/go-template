@@ -15,11 +15,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"golang.org/x/oauth2"
 
-	"srv.housecat.com/assets"
-	"srv.housecat.com/db"
-	"srv.housecat.com/db/dbgen"
-	"srv.housecat.com/ui/blocks/auth"
-	"srv.housecat.com/ui/pages"
+	"github.com/housecat-inc/go-template/assets"
+	"github.com/housecat-inc/go-template/db"
+	"github.com/housecat-inc/go-template/db/dbgen"
+	"github.com/housecat-inc/go-template/ui/blocks/auth"
+	"github.com/housecat-inc/go-template/ui/pages"
 )
 
 type Server struct {

@@ -1,16 +1,14 @@
 # Create a new VM
 
-If a private repo, pass the VM the repo URL and a private key. Example:
+Clone https://github.com/housecat-inc/go-template to go-template.
 
-https://github.com/housecat-inc/private
-
-Install `gh-app`:
+For private repos install `gh-app`:
 
 ```bash
-go install srv.housecat.com/cmd/gh-app@latest
+go install github.com/housecat-inc/go-template/cmd/gh-app@latest
 ```
 
-App `~/.ssh/shelley-agent.pem` private key:
+And a GitHub App private key to `~/.ssh/shelley-agent.pem`:
 
 ```pem
 -----BEGIN RSA PRIVATE KEY-----

@@ -61,7 +61,7 @@ Page: Content like projects list and project overview.
 
 ### Conventions
 
-Save CRUD activities through `db/dbgen/activities.sql.go` with display-friendly values like user email in `metadata`. Add activities to List and Get pages where applicable.
+Use authenticated routes. Save CRUD activities through `db/dbgen/activities.sql.go` with display-friendly values like user email in `metadata`. Add activities to List and Get pages where applicable.
 
 Use `button.TypeSubmit` buttons for buttons that submit a form. templui buttons default to type="button".
 

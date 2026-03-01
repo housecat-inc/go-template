@@ -15,7 +15,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"golang.org/x/oauth2"
 
-	"srv.housecat.com/db/dbgen"
+	"github.com/housecat-inc/go-template/db/dbgen"
 )
 
 type OAuthConfig struct {
