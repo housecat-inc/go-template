@@ -1,6 +1,7 @@
 package layouts
 
 import (
+	"srv.housecat.com/ui/blocks/theme"
 	"srv.housecat.com/ui/components/button"
 	"srv.housecat.com/ui/components/dialog"
 	"srv.housecat.com/ui/components/icon"
@@ -22,6 +23,7 @@ templ Layout(nav NavData) {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>{ nav.Title }</title>
 			<link rel="stylesheet" href="/assets/css/output.css"/>
+			@theme.Script()
 		</head>
 		<body class="bg-background text-foreground min-h-screen">
 			@dialog.Script()
@@ -45,6 +47,7 @@ templ Layout(nav NavData) {
 								<span class="font-semibold text-lg">{ nav.Title }</span>
 							</div>
 							<div class="flex items-center gap-2">
+								@theme.ThemeSwitcher()
 								if nav.UserEmail != "" {
 									<span class="text-sm text-muted-foreground hidden sm:inline">
 										Signed in as <strong class="text-foreground">{ nav.UserEmail }</strong>

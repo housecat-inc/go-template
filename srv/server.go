@@ -69,6 +69,11 @@ func (s *Server) Serve(addr string) error {
 func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
 
+	// On localhost, skip sign-in — RequireAuth on /home will auto-authenticate
+	if strings.HasPrefix(r.Host, "localhost") {
+		return c.Redirect(http.StatusFound, "/home")
+	}
+
 	if _, err := s.getSession(r); err == nil {
 		return c.Redirect(http.StatusFound, "/home")
 	}

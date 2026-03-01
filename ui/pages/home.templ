@@ -41,7 +41,7 @@ templ Home(data PageData) {
 				This VM has a persistent disk, sudo, HTTPS, and SSH all wired up.
 			</p>
 			if data.ActivityCount > 0 {
-				<p class="text-sm text-muted-foreground">
+				<p class="text-sm text-muted-foreground inline-flex items-center gap-1.5">
 					You have
 					@badge.Badge() {
 						{ fmt.Sprintf("%d", data.ActivityCount) }
