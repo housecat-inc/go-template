@@ -1,0 +1,149 @@
+package pages
+
+import (
+	"fmt"
+
+	"srv.housecat.com/ui/components/badge"
+	"srv.housecat.com/ui/components/button"
+	"srv.housecat.com/ui/components/card"
+	"srv.housecat.com/ui/components/icon"
+	"srv.housecat.com/ui/components/input"
+	"srv.housecat.com/ui/layouts"
+)
+
+type ChatPreview struct {
+	ID          int64
+	LastMessage string
+	LastSender  string
+	LastTime    string
+	MemberCount int
+	Title       string
+}
+
+type ChatsPageData struct {
+	Chats     []ChatPreview
+	Hostname  string
+	LoginURL  string
+	LogoutURL string
+	UserEmail string
+}
+
+templ ChatsPage(data ChatsPageData) {
+	@layouts.Layout(layouts.NavData{
+		Title:     data.Hostname,
+		UserEmail: data.UserEmail,
+		LoginURL:  data.LoginURL,
+		LogoutURL: data.LogoutURL,
+	}) {
+		<div class="space-y-6">
+			<div class="flex items-center justify-between">
+				<h1 class="text-3xl font-bold tracking-tight">Chats</h1>
+			</div>
+			@card.Card(card.Props{Class: "overflow-hidden"}) {
+				<div class="border-b px-4 py-3 flex items-center justify-between gap-3">
+					<div class="flex-1">
+						@input.Input(input.Props{
+							Placeholder: "Search chats...",
+							Class:       "h-9",
+						})
+					</div>
+					@NewChatButton()
+				</div>
+				if len(data.Chats) == 0 {
+					<div class="px-6 py-12 text-center">
+						<div class="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-4">
+							@icon.Icon("message-circle")(icon.Props{Size: 24})
+						</div>
+						<h3 class="text-lg font-semibold mb-1">No chats yet</h3>
+						<p class="text-sm text-muted-foreground mb-4">Start a conversation to get going.</p>
+						@NewChatButton()
+					</div>
+				} else {
+					<div class="divide-y">
+						for _, chat := range data.Chats {
+							@ChatListItem(chat)
+						}
+					</div>
+				}
+			}
+		</div>
+	}
+}
+
+templ ChatListItem(chat ChatPreview) {
+	<a href={ templ.SafeURL(fmt.Sprintf("/chats/%d", chat.ID)) } class="flex items-center gap-3 px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors">
+		<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+			@icon.Icon("message-circle")(icon.Props{Size: 18})
+		</div>
+		<div class="flex-1 min-w-0">
+			<div class="flex items-center justify-between mb-1">
+				<p class="font-medium text-sm truncate">{ chat.Title }</p>
+				if chat.LastTime != "" {
+					<span class="text-xs text-muted-foreground shrink-0 ml-2">{ chat.LastTime }</span>
+				}
+			</div>
+			if chat.LastMessage != "" {
+				<p class="text-sm text-muted-foreground truncate">
+					<span class="font-medium">{ chat.LastSender }:</span> { chat.LastMessage }
+				</p>
+			} else {
+				<p class="text-sm text-muted-foreground italic">No messages yet</p>
+			}
+		</div>
+		@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+			{ fmt.Sprintf("%d", chat.MemberCount) }
+		}
+	</a>
+}
+
+templ NewChatButton() {
+	@button.Button(button.Props{
+		Size: button.SizeSm,
+		Attributes: templ.Attributes{
+			"onclick": "document.getElementById('new-chat-dialog').showModal()",
+		},
+	}) {
+		@icon.Icon("plus")(icon.Props{Size: 16})
+		New Chat
+	}
+	<dialog id="new-chat-dialog" class="hidden open:block backdrop:bg-black/50 rounded-lg border bg-background p-0 w-full max-w-md shadow-lg fixed inset-0 m-auto z-50">
+		<form method="POST" action="/chats" class="p-6 space-y-4">
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold">New Chat</h2>
+				<button type="button" onclick="this.closest('dialog').close()" class="text-muted-foreground hover:text-foreground">
+					@icon.Icon("x")(icon.Props{Size: 18})
+				</button>
+			</div>
+			<div class="space-y-2">
+				<label class="text-sm font-medium">Chat name</label>
+				@input.Input(input.Props{
+					Name:        "title",
+					Placeholder: "e.g. Project Discussion",
+				})
+			</div>
+			<div class="space-y-2">
+				<label class="text-sm font-medium">Invite members (comma-separated emails)</label>
+				@input.Input(input.Props{
+					Name:        "invites",
+					Placeholder: "alice@example.com, bob@example.com",
+				})
+			</div>
+			<div class="flex justify-end gap-2 pt-2">
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Type:    "button",
+					Attributes: templ.Attributes{
+						"onclick": "this.closest('dialog').close()",
+					},
+				}) {
+					Cancel
+				}
+				@button.Button(button.Props{
+					Type: "submit",
+				}) {
+					Create
+				}
+			</div>
+		</form>
+	</dialog>
+}

@@ -65,11 +65,17 @@ func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 		} else {
 			userID = strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
 			userEmail = strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
-			logoutURL = "/__exe.dev/logout?redirect=/"
+			logoutURL = "/auth/logout"
 		}
 
 		if userID == "" {
 			return c.Redirect(http.StatusFound, "/")
+		}
+
+		// When authenticated via exe.dev headers but no session cookie,
+		// create one so cookie-only clients (e.g. browser tool) work.
+		if err != nil && userID != "" && s.DB != nil {
+			s.ensureSessionCookie(c, userID, userEmail)
 		}
 
 		c.Set("logoutURL", logoutURL)
@@ -192,7 +198,46 @@ func (s *Server) HandleAuthLogout(c echo.Context) error {
 		MaxAge: -1,
 	})
 
+	if r.Header.Get("X-ExeDev-UserID") != "" {
+		return c.HTML(http.StatusOK, `<!DOCTYPE html>
+<html><body>
+<form id="f" method="POST" action="/__exe.dev/logout"></form>
+<script>document.getElementById('f').submit()</script>
+</body></html>`)
+	}
+
 	return c.Redirect(http.StatusFound, "/")
+}
+
+func (s *Server) ensureSessionCookie(c echo.Context, userID, email string) {
+	r := c.Request()
+	sessionID, err := randomHex(32)
+	if err != nil {
+		slog.Warn("generate session id", "error", err)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	if err := q.InsertSession(r.Context(), dbgen.InsertSessionParams{
+		ID:        sessionID,
+		UserID:    userID,
+		Email:     email,
+		ExpiresAt: expiresAt,
+	}); err != nil {
+		slog.Warn("insert session for exe.dev user", "error", err)
+		return
+	}
+
+	c.SetCookie(&http.Cookie{
+		Name:     "session_id",
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 60 * 60,
+	})
 }
 
 func (s *Server) callbackURL(r *http.Request) string {

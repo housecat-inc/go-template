@@ -4,6 +4,8 @@ This is a Go web application template for exe.dev.
 
 See README.md for details on the structure and components.
 
+See .skills for skills to use consistently.
+
 ## Code Conventions
 
 Don't add comments, write self-commenting code.

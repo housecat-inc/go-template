@@ -17,6 +17,30 @@ type Activity struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Chat struct {
+	CreatedAt time.Time `json:"created_at"`
+	ID        int64     `json:"id"`
+	OwnerID   string    `json:"owner_id"`
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ChatMember struct {
+	ChatID    int64     `json:"chat_id"`
+	CreatedAt time.Time `json:"created_at"`
+	UserEmail string    `json:"user_email"`
+	UserID    string    `json:"user_id"`
+}
+
+type Message struct {
+	ChatID      int64     `json:"chat_id"`
+	Content     string    `json:"content"`
+	CreatedAt   time.Time `json:"created_at"`
+	ID          int64     `json:"id"`
+	SenderEmail string    `json:"sender_email"`
+	SenderID    string    `json:"sender_id"`
+}
+
 type Session struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"user_id"`
