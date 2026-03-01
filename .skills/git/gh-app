@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_ID="${GH_APP_ID:-2976885}"
-PEM_FILE="${GH_APP_PEM:-/home/exedev/.config/github-app/shelley-agent.pem}"
+PEM_FILE="${GH_APP_PEM:-$HOME/.ssh/shelley-agent.pem}"
 REPO="${GH_APP_REPO:-}"
 
 NOW=$(date +%s)

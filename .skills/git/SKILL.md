@@ -11,11 +11,11 @@ This VM authenticates to GitHub as `shelley-agent[bot]` using a GitHub App (ID: 
 
 ### How it works
 
-- A private key is stored at `~/.config/github-app/shelley-agent.pem`
+- A private key is stored at `~/.ssh/shelley-agent.pem`
 - `.skills/git/gh-app` generates a JWT from the key, exchanges it for a short-lived installation token (1 hour), then runs `gh`
 - Config is via env vars:
   - `GH_APP_ID` (default: `2976885`)
-  - `GH_APP_PEM` (default: `~/.config/github-app/shelley-agent.pem`)
+  - `GH_APP_PEM` (default: `~/.ssh/shelley-agent.pem`)
   - `GH_APP_REPO` (optional, scopes token to a single repo name e.g. `go-template`)
 - Tokens are independent — multiple VMs can use the same PEM without conflicts
 
