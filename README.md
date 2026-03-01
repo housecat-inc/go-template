@@ -8,29 +8,13 @@ Build with `make build`, then run `./bin/srv`. The server listens on port 8000 b
 
 ## Running on exe.dev
 
-Install dependencies:
-
-```bash
-curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.1/tailwindcss-linux-x64 && chmod +x tailwindcss-linux-x64 && sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss
-```
-
-### Directory layout
-
-The production layout separates the binary from its data:
-
-```
-/opt/srv/
-├── bin/srv          # binary (owned root:root, 0755)
-└── data/            # working directory (owned exedev:exedev, 0700)
-    ├── db.sqlite3   # database
-    └── .env         # environment (optional, 0600)
-```
-
-The service binary is read-only to the app process. Only `/opt/srv/data` is writable, so a vulnerability in the web app cannot modify the binary, read the home directory, or write elsewhere on the filesystem.
-
 ### First-time setup
 
 ```bash
+# Install dependencies
+curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.1/tailwindcss-linux-x64 && chmod +x tailwindcss-linux-x64 && sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss
+
+# Install service
 make install
 sudo cp srv.service /etc/systemd/system/srv.service
 sudo systemctl daemon-reload
@@ -53,6 +37,8 @@ sudo systemctl restart srv
 
 ### Systemd hardening
 
+The production layout separates  data `/opt/srv/data` (exedv 0700) from the binary binary `/opt/srv/bin/srv` (root 0755).
+
 The service file includes:
 
 - **ProtectHome=true** — `/home` is inaccessible to the service
@@ -71,19 +57,19 @@ Then:
 ssh exe.dev share set-public daemon-juliet
 ```
 
-As a fallback exe.dev provides authorization headers and login/logout links. When proxied through exed, requests will include `X-ExeDev-UserID` and `X-ExeDev-Email` if the user is authenticated via exe.dev.
+As a fallback exe.dev provides authorization headers like `X-ExeDev-UserID` and `X-ExeDev-Email` that are used to create a session.
 
 ## Database
 
-This template uses sqlite (`db.sqlite3`) stored in `/opt/srv/data/`. SQL queries are managed with sqlc.
+This template uses sqlite (`db.sqlite3`). SQL queries are managed with `go tool sqlc`.
 
 ## UI
 
-This template uses templ and templui. Run `go tool templ generate` to generate templates. Run `go tool templui` to list and install components.
+This template uses templ and templui. Run `go tool templ generate` to generate templates. Run `go tool templui` to list and install components. Run `git clone https://github.com/housecat-inc/templui-pro` to explore additional application building blocks.
 
 ## Code layout
 
 - `cmd/srv`: main package (binary entrypoint)
-- `db`: SQLite open + migrations (001-base.sql)
+- `db`: SQLite open + migrations (0001_activities.sql)
 - `srv`: HTTP server logic (handlers)
 - `ui`: templ UI components
