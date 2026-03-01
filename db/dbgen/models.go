@@ -9,12 +9,16 @@ import (
 )
 
 type Activity struct {
-	ID        int64     `json:"id"`
-	ActorID   string    `json:"actor_id"`
-	ActorType string    `json:"actor_type"`
-	Action    string    `json:"action"`
-	Metadata  *string   `json:"metadata"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	ActorID    string    `json:"actor_id"`
+	ActorType  string    `json:"actor_type"`
+	Action     string    `json:"action"`
+	ObjectID   string    `json:"object_id"`
+	ObjectType string    `json:"object_type"`
+	TargetID   *string   `json:"target_id"`
+	TargetType *string   `json:"target_type"`
+	Metadata   *string   `json:"metadata"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type Session struct {

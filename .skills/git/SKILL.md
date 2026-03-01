@@ -15,7 +15,7 @@ Install the pem to `~/.ssh/` and `gh-app` to PATH (once per VM). After authentic
 
 ```bash
 # write ~/.ssh/shelley-agent.pem
-sudo ln -sf "$(pwd)/.skills/git/gh-app" /usr/local/bin/gh-app
+go install srv.housecat.com/cmd/gh-app@latest
 gh-app
 gh auth setup-git
 git config --global user.name  = shelley-agent[bot]

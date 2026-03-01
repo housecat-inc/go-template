@@ -94,9 +94,11 @@ func (s *Server) HandleHome(c echo.Context) error {
 		q := dbgen.New(s.DB)
 		if r.Method == "GET" {
 			err := q.InsertActivity(r.Context(), dbgen.InsertActivityParams{
-				ActorID:   userID,
-				ActorType: "user",
-				Action:    "logged_in",
+				ActorID:    userID,
+				ActorType:  "user",
+				Action:     "logged_in",
+				ObjectID:   userID,
+				ObjectType: "user",
 			})
 			if err != nil {
 				slog.Warn("insert activity", "error", err, "user_id", userID)

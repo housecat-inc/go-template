@@ -10,15 +10,19 @@ import (
 )
 
 const insertActivity = `-- name: InsertActivity :exec
-INSERT INTO activities (actor_id, actor_type, action, metadata)
-VALUES (?, ?, ?, ?)
+INSERT INTO activities (actor_id, actor_type, action, object_id, object_type, target_id, target_type, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertActivityParams struct {
-	ActorID   string  `json:"actor_id"`
-	ActorType string  `json:"actor_type"`
-	Action    string  `json:"action"`
-	Metadata  *string `json:"metadata"`
+	ActorID    string  `json:"actor_id"`
+	ActorType  string  `json:"actor_type"`
+	Action     string  `json:"action"`
+	ObjectID   string  `json:"object_id"`
+	ObjectType string  `json:"object_type"`
+	TargetID   *string `json:"target_id"`
+	TargetType *string `json:"target_type"`
+	Metadata   *string `json:"metadata"`
 }
 
 func (q *Queries) InsertActivity(ctx context.Context, arg InsertActivityParams) error {
@@ -26,13 +30,17 @@ func (q *Queries) InsertActivity(ctx context.Context, arg InsertActivityParams) 
 		arg.ActorID,
 		arg.ActorType,
 		arg.Action,
+		arg.ObjectID,
+		arg.ObjectType,
+		arg.TargetID,
+		arg.TargetType,
 		arg.Metadata,
 	)
 	return err
 }
 
 const listActivitiesByActor = `-- name: ListActivitiesByActor :many
-SELECT id, actor_id, actor_type, "action", metadata, created_at FROM activities
+SELECT id, actor_id, actor_type, "action", object_id, object_type, target_id, target_type, metadata, created_at FROM activities
 WHERE actor_id = ?
 ORDER BY created_at DESC
 LIMIT ?
@@ -57,6 +65,104 @@ func (q *Queries) ListActivitiesByActor(ctx context.Context, arg ListActivitiesB
 			&i.ActorID,
 			&i.ActorType,
 			&i.Action,
+			&i.ObjectID,
+			&i.ObjectType,
+			&i.TargetID,
+			&i.TargetType,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActivitiesByObject = `-- name: ListActivitiesByObject :many
+SELECT id, actor_id, actor_type, "action", object_id, object_type, target_id, target_type, metadata, created_at FROM activities
+WHERE object_type = ? AND object_id = ?
+ORDER BY created_at DESC
+LIMIT ?
+`
+
+type ListActivitiesByObjectParams struct {
+	ObjectType string `json:"object_type"`
+	ObjectID   string `json:"object_id"`
+	Limit      int64  `json:"limit"`
+}
+
+func (q *Queries) ListActivitiesByObject(ctx context.Context, arg ListActivitiesByObjectParams) ([]Activity, error) {
+	rows, err := q.db.QueryContext(ctx, listActivitiesByObject, arg.ObjectType, arg.ObjectID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Activity{}
+	for rows.Next() {
+		var i Activity
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.ActorType,
+			&i.Action,
+			&i.ObjectID,
+			&i.ObjectType,
+			&i.TargetID,
+			&i.TargetType,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActivitiesByTarget = `-- name: ListActivitiesByTarget :many
+SELECT id, actor_id, actor_type, "action", object_id, object_type, target_id, target_type, metadata, created_at FROM activities
+WHERE target_type = ? AND target_id = ?
+ORDER BY created_at DESC
+LIMIT ?
+`
+
+type ListActivitiesByTargetParams struct {
+	TargetType *string `json:"target_type"`
+	TargetID   *string `json:"target_id"`
+	Limit      int64   `json:"limit"`
+}
+
+func (q *Queries) ListActivitiesByTarget(ctx context.Context, arg ListActivitiesByTargetParams) ([]Activity, error) {
+	rows, err := q.db.QueryContext(ctx, listActivitiesByTarget, arg.TargetType, arg.TargetID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Activity{}
+	for rows.Next() {
+		var i Activity
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.ActorType,
+			&i.Action,
+			&i.ObjectID,
+			&i.ObjectType,
+			&i.TargetID,
+			&i.TargetType,
 			&i.Metadata,
 			&i.CreatedAt,
 		); err != nil {
