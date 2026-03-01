@@ -9,7 +9,7 @@ DO NOT CODE before planning with ASCII wireframes with the developer. DO NOT COD
 
 1. Scan TemplUI Pro blocks and TemplUI components. Build with templ fragments remixed from these.
 2. Plan with ASCII wireframes. Design with elements remixed from these.
-3. Build pages with simple service stubs if possible first.
+3. Build pages with an in-memory data store first.
 
 ## Design System
 
@@ -56,6 +56,48 @@ Page: Content like projects list and project overview.
 │          │└─────────────┘[▲]│ └───┴───┴───┴───┘ │
 └──────────┴──────────────────┴───────────────────┘
 ```
+
+## CRUD
+
+### List
+
+Reference this block: https://github.com/housecat-inc/templui-pro/blob/main/blocks/account/team_management_001.templ
+
+List page (`/members`), button to create new (`/members/new`), optional summary cards, items cart ("Team Members"), item cards ("Member") with a dropdown menu for controls ("Update", "Delete").
+
+### Create / Update
+
+Reference this block: https://github.com/housecat-inc/templui-pro/blob/main/blocks/profile/profile_edit_001.templ
+
+Create page (`/members/new`), centered card with form and groups of form items ("Personal Info", "Contact Details", etc.), centered action buttons ("Cancel", "Create Member").
+
+Update page (`/members/:id/edit`) is similar with different action buttons ("Cancel", "Save Changes").
+
+### Get
+
+Reference this block: https://github.com/housecat-inc/templui-pro/blob/main/blocks/profile/profile_overview_001.templ
+
+View page (`/members/:id`), heading with name and other key info, buttons to edit (`/members/:id/edit`) and archive (dialog), cards for infomation ("Personal Info", "Contact Details", etc.) and stats ("Pro"), card for recent activity.
+
+### Archive
+
+Reference the templui `dialog` components: `ui/components/dialog`
+
+Dialog header with action info ("Confirm $Action: $ObjectName"), description with additional context ("This will..."), cancel button and destructive action button ("Archive")
+
+We generally prefer to soft "archive" and "trash" than a hard "delete".
+
+```
+┌─────────────────────────────────────────┐
+│Confirm Archive: John Doe             [x]│
+│                                         │
+│This will archive the John Doe user. You │
+│can unarchive or trash later.            │
+│                                         │
+│                       [Cancel] [Archive]│
+└─────────────────────────────────────────┘
+```
+
 
 ## Templui
 
@@ -121,3 +163,7 @@ When planning a chat tool:
 - Run `templui list` and see breadcrumb, button, skeleton, textarea
 - Make some ASCII wireframes and discuss with the developer
 - Copy templui-pro files, install templ components, and build pages with service stubs
+
+Then use the browser skill to review. For every page:
+
+- Look for horizontal and vertical alignment issues
