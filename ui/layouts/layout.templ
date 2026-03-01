@@ -3,7 +3,9 @@ package layouts
 import (
 	"srv.housecat.com/ui/components/button"
 	"srv.housecat.com/ui/components/dialog"
+	"srv.housecat.com/ui/components/dropdown"
 	"srv.housecat.com/ui/components/icon"
+	"srv.housecat.com/ui/components/popover"
 	"srv.housecat.com/ui/components/sheet"
 )
 
@@ -22,9 +24,12 @@ templ Layout(nav NavData) {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>{ nav.Title }</title>
 			<link rel="stylesheet" href="/assets/css/output.css"/>
+			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"></script>
 		</head>
 		<body class="bg-background text-foreground min-h-screen">
 			@dialog.Script()
+			@popover.Script()
+			@dropdown.Script()
 			@sheet.Sheet(sheet.Props{
 				Side: sheet.SideLeft,
 			}) {
@@ -73,13 +78,9 @@ templ Layout(nav NavData) {
 						<aside class="hidden lg:block w-64 bg-card border-r">
 							@Sidebar()
 						</aside>
-						<div class="flex-1 flex flex-col">
-							<main class="flex-1 overflow-y-auto p-6 flex justify-center">
-								<div class="max-w-4xl w-full space-y-6">
-									{ children... }
-								</div>
-							</main>
-						</div>
+						<div class="flex-1 flex flex-col overflow-hidden">
+						{ children... }
+					</div>
 					</div>
 				</div>
 				@sheet.Content() {
@@ -101,6 +102,15 @@ templ Sidebar() {
 			}) {
 				@icon.House(icon.Props{Size: 16})
 				Home
+			}
+			@button.Button(button.Props{
+				Variant:   button.VariantGhost,
+				FullWidth: true,
+				Class:     "justify-start",
+				Href:      "/chats",
+			}) {
+				@icon.MessageCircle(icon.Props{Size: 16})
+				Chats
 			}
 		</nav>
 	</div>

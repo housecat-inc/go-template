@@ -1,0 +1,189 @@
+package pages
+
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"srv.housecat.com/db/dbgen"
+	"srv.housecat.com/ui/components/icon"
+	"srv.housecat.com/ui/layouts"
+)
+
+type ChatData struct {
+	ChatID   string
+	Messages []dbgen.Message
+	Nav      layouts.NavData
+}
+
+func chatTimeAgo(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
+
+type chatGroup struct {
+	Chats []dbgen.Chat
+	Label string
+}
+
+func groupChats(chats []dbgen.Chat) []chatGroup {
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+	weekStart := todayStart.AddDate(0, 0, -7)
+
+	var today, yesterday, week, older []dbgen.Chat
+	for _, c := range chats {
+		switch {
+		case !c.UpdatedAt.Before(todayStart):
+			today = append(today, c)
+		case !c.UpdatedAt.Before(yesterdayStart):
+			yesterday = append(yesterday, c)
+		case !c.UpdatedAt.Before(weekStart):
+			week = append(week, c)
+		default:
+			older = append(older, c)
+		}
+	}
+
+	var groups []chatGroup
+	if len(today) > 0 {
+		groups = append(groups, chatGroup{Label: "Today", Chats: today})
+	}
+	if len(yesterday) > 0 {
+		groups = append(groups, chatGroup{Label: "Yesterday", Chats: yesterday})
+	}
+	if len(week) > 0 {
+		groups = append(groups, chatGroup{Label: "Previous 7 Days", Chats: week})
+	}
+	if len(older) > 0 {
+		groups = append(groups, chatGroup{Label: "Older", Chats: older})
+	}
+	return groups
+}
+
+func chatSignalsJSON(data ChatData) string {
+	type msg struct {
+		Content string `json:"content"`
+		Role    string `json:"role"`
+	}
+	msgs := make([]msg, len(data.Messages))
+	for i, m := range data.Messages {
+		msgs[i] = msg{Content: m.Content, Role: m.Role}
+	}
+	signals := map[string]any{
+		"chatId":    data.ChatID,
+		"input":     "",
+		"messages":  msgs,
+		"streaming": false,
+	}
+	b, _ := json.Marshal(signals)
+	return string(b)
+}
+
+templ Chat(data ChatData) {
+	@layouts.Layout(data.Nav) {
+		<div class="flex-1 flex flex-col min-w-0 overflow-hidden" data-signals={ chatSignalsJSON(data) }>
+			if data.ChatID == "" {
+				@chatEmptyState()
+			}
+			<div id="messages" class={ "flex-1 overflow-y-auto p-4 space-y-4", templ.KV("hidden", data.ChatID == "") }>
+				for _, msg := range data.Messages {
+					@ChatBubble(msg)
+				}
+			</div>
+			<div class="border-t p-4">
+				@chatInputForm()
+			</div>
+		</div>
+	}
+}
+
+templ chatEmptyState() {
+	<div id="empty-state" class="flex-1 flex items-center justify-center p-8">
+		<div class="text-center max-w-md">
+			<div class="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+				@icon.MessageSquare(icon.Props{Size: 32, Class: "text-muted-foreground"})
+			</div>
+			<h3 class="text-lg font-semibold mb-2">Start a New Conversation</h3>
+			<p class="text-sm text-muted-foreground mb-6">
+				Type a message below to get started.
+			</p>
+			<div class="p-4 bg-muted/50 rounded-lg">
+				<h4 class="text-sm font-medium mb-2">Quick Templates</h4>
+				<div class="grid grid-cols-2 gap-2">
+					@chatTemplateButton("Code Review", "code")
+					@chatTemplateButton("Writing Help", "writing")
+					@chatTemplateButton("Data Analysis", "data")
+					@chatTemplateButton("Learning", "learning")
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ chatTemplateButton(label, category string) {
+	<button
+		class="flex items-center gap-2 p-2 text-sm bg-background border rounded-lg hover:bg-muted transition-colors"
+		data-on:click={ fmt.Sprintf("$input = 'Help me with: %s'", label) }
+	>
+		switch category {
+			case "code":
+				@icon.Code(icon.Props{Size: 14})
+			case "writing":
+				@icon.FileText(icon.Props{Size: 14})
+			case "data":
+				@icon.ChartBar(icon.Props{Size: 14})
+			default:
+				@icon.GraduationCap(icon.Props{Size: 14})
+		}
+		{ label }
+	</button>
+}
+
+templ chatInputForm() {
+	<form
+		class="flex gap-2"
+		data-on:submit__prevent="$streaming = true; @post('/api/chat')"
+	>
+		<input
+			data-bind:input
+			type="text"
+			placeholder="Type a message…"
+			autocomplete="off"
+			data-attr:disabled="$streaming"
+			class="flex-1 rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+		/>
+		<button
+			type="submit"
+			data-attr:disabled="$input.trim() === '' || $streaming"
+			class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+		>
+			<span data-show="!$streaming">Send</span>
+			<span data-show="$streaming" style="display:none">Sending…</span>
+		</button>
+	</form>
+}
+
+templ ChatBubble(msg dbgen.Message) {
+	<div class={ "flex", templ.KV("justify-end", msg.Role == "user"), templ.KV("justify-start", msg.Role != "user") }>
+		<div
+			class={ "max-w-[80%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap",
+				templ.KV("bg-primary text-primary-foreground", msg.Role == "user"),
+				templ.KV("bg-muted text-foreground", msg.Role == "model"),
+				templ.KV("bg-blue-100 dark:bg-blue-900 text-foreground", msg.Role == "tool"),
+				templ.KV("bg-yellow-100 dark:bg-yellow-900 text-foreground italic", msg.Role == "harness") }
+		>
+			{ msg.Content }
+		</div>
+	</div>
+}

@@ -17,6 +17,23 @@ type Activity struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Chat struct {
+	ID        string     `json:"id"`
+	Title     string     `json:"title"`
+	UserID    string     `json:"user_id"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at"`
+}
+
+type Message struct {
+	ID        int64     `json:"id"`
+	ChatID    string    `json:"chat_id"`
+	Content   string    `json:"content"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Session struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"user_id"`

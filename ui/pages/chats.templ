@@ -1,0 +1,88 @@
+package pages
+
+import (
+	"fmt"
+
+	"srv.housecat.com/db/dbgen"
+	"srv.housecat.com/ui/components/button"
+	"srv.housecat.com/ui/components/icon"
+	"srv.housecat.com/ui/components/input"
+	"srv.housecat.com/ui/layouts"
+)
+
+type ChatsData struct {
+	Chats []dbgen.Chat
+	Nav   layouts.NavData
+	Query string
+}
+
+templ Chats(data ChatsData) {
+	@layouts.Layout(data.Nav) {
+		<div class="flex-1 flex flex-col overflow-hidden">
+			<div class="flex-1 overflow-y-auto p-6">
+				<div class="max-w-2xl mx-auto space-y-4">
+					<h1 class="text-2xl font-semibold">Chats</h1>
+					<div class="relative">
+						<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+							@icon.Search(icon.Props{Size: 16, Class: "text-muted-foreground"})
+						</div>
+						@input.Input(input.Props{Placeholder: "Search conversations...", Class: "pl-9"})
+					</div>
+					if len(data.Chats) == 0 {
+						<div class="flex flex-col items-center justify-center py-16 text-center">
+							<div class="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+								@icon.MessageSquare(icon.Props{Size: 32, Class: "text-muted-foreground"})
+							</div>
+							<h3 class="text-lg font-semibold mb-2">No conversations yet</h3>
+							<p class="text-sm text-muted-foreground">Start a new conversation to get going.</p>
+						</div>
+					} else {
+						<div class="space-y-6">
+							for _, g := range groupChats(data.Chats) {
+								@chatsListGroup(g)
+							}
+						</div>
+					}
+				</div>
+			</div>
+			<div class="border-t p-4">
+				<div class="max-w-2xl mx-auto">
+					@button.Button(button.Props{Href: "/chat", FullWidth: true}) {
+						@icon.Plus(icon.Props{Size: 16})
+						New conversation
+					}
+				</div>
+			</div>
+		</div>
+	}
+}
+
+templ chatsListGroup(g chatGroup) {
+	<div>
+		<h3 class="text-xs font-medium text-muted-foreground mb-2">{ g.Label }</h3>
+		<div class="space-y-1">
+			for _, chat := range g.Chats {
+				@chatsListItem(chat)
+			}
+		</div>
+	</div>
+}
+
+templ chatsListItem(chat dbgen.Chat) {
+	<div class="group relative flex items-center">
+		<a
+			href={ templ.SafeURL(fmt.Sprintf("/chat?id=%s", chat.ID)) }
+			class="flex-1 min-w-0 block text-left px-3 py-2 rounded-lg transition-colors hover:bg-muted"
+		>
+			<p class="text-sm font-medium truncate">{ chat.Title }</p>
+			<span class="text-xs text-muted-foreground">{ chatTimeAgo(chat.UpdatedAt) }</span>
+		</a>
+		<button
+			class="shrink-0 p-1 mr-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+			data-on:click={ fmt.Sprintf("@delete('/api/chat/%s')", chat.ID) }
+			title="Delete chat"
+		>
+			@icon.Trash2(icon.Props{Size: 14})
+		</button>
+	</div>
+}

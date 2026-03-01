@@ -57,11 +57,15 @@ func (s *Server) Serve(addr string) error {
 	e.HidePort = true
 
 	e.GET("/", s.HandleRoot)
+	e.GET("/chat", s.HandleChat, s.RequireAuth)
+	e.GET("/chats", s.HandleChats, s.RequireAuth)
 	e.GET("/home", s.HandleHome, s.RequireAuth)
 	if s.oauth2Config != nil {
 		e.GET("/auth/google", s.HandleAuthGoogle)
 		e.GET("/auth/callback", s.HandleAuthCallback)
 	}
+	e.POST("/api/chat", s.HandleChatSend, s.RequireAuth)
+	e.DELETE("/api/chat/:id", s.HandleChatDelete, s.RequireAuth)
 	e.GET("/auth/logout", s.HandleAuthLogout)
 	e.Static("/assets", s.AssetsDir)
 
