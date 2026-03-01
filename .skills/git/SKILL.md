@@ -19,6 +19,14 @@ This VM authenticates to GitHub as `shelley-agent[bot]` using a GitHub App (ID: 
   - `GH_APP_REPO` (optional, scopes token to a single repo name e.g. `go-template`)
 - Tokens are independent — multiple VMs can use the same PEM without conflicts
 
+### Setup
+
+Install `gh-app` to PATH (once per VM):
+
+```bash
+sudo ln -sf "$(pwd)/.skills/git/gh-app" /usr/local/bin/gh-app
+```
+
 ### Commands
 
 - **`gh-app <args>`** — refreshes the token on-demand, then runs `gh`. Use this for GitHub operations. Adds ~1 second overhead.
