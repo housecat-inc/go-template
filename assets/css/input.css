@@ -106,6 +106,9 @@
   dialog, hgroup, search {
     display: block;
   }
+  script, style {
+    display: none !important;
+  }
   li { display: list-item; }
   summary { display: list-item; }
   hr { display: block; }

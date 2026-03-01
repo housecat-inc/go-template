@@ -25,6 +25,7 @@ import (
 
 type Server struct {
 	AssetsDir    string
+	Broker       *ChatBroker
 	DB           *sql.DB
 	Hostname     string
 	OAuth        OAuthConfig
@@ -37,6 +38,7 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
 	baseDir := filepath.Dir(thisFile)
 	srv := &Server{
 		AssetsDir: filepath.Join(baseDir, "..", "assets"),
+		Broker:    NewChatBroker(),
 		Hostname:  hostname,
 		OAuth:     oauthCfg,
 	}
@@ -58,6 +60,12 @@ func (s *Server) Serve(addr string) error {
 
 	e.GET("/", s.HandleRoot)
 	e.GET("/home", s.HandleHome, s.RequireAuth)
+	e.GET("/chats", s.HandleChats, s.RequireAuth)
+	e.POST("/chats", s.HandleChatCreate, s.RequireAuth)
+	e.GET("/chats/:id", s.HandleChatView, s.RequireAuth)
+	e.POST("/chats/:id/messages", s.HandleChatSendMessage, s.RequireAuth)
+	e.POST("/chats/:id/members", s.HandleChatAddMember, s.RequireAuth)
+	e.GET("/chats/:id/sse", s.HandleChatSSE, s.RequireAuth)
 	if s.oauth2Config != nil {
 		e.GET("/auth/google", s.HandleAuthGoogle)
 		e.GET("/auth/callback", s.HandleAuthCallback)

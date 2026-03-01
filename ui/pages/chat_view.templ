@@ -1,0 +1,295 @@
+package pages
+
+import (
+	"fmt"
+	"strings"
+
+	"srv.housecat.com/ui/components/avatar"
+	"srv.housecat.com/ui/components/button"
+	"srv.housecat.com/ui/components/icon"
+	"srv.housecat.com/ui/components/input"
+	"srv.housecat.com/ui/layouts"
+)
+
+type MessageView struct {
+	Content     string
+	ID          int64
+	IsSent      bool
+	SenderEmail string
+	SenderName  string
+	Time        string
+}
+
+type MemberView struct {
+	Email string
+	Name  string
+}
+
+type ChatViewData struct {
+	ChatID    int64
+	Hostname  string
+	LoginURL  string
+	LogoutURL string
+	Members   []MemberView
+	Messages  []MessageView
+	Title     string
+	UserEmail string
+	UserID    string
+}
+
+templ ChatView(data ChatViewData) {
+	@layouts.Layout(layouts.NavData{
+		Title:     data.Hostname,
+		UserEmail: data.UserEmail,
+		LoginURL:  data.LoginURL,
+		LogoutURL: data.LogoutURL,
+	}) {
+		<div class="flex flex-col h-[calc(100vh-8rem)] -my-6" data-user-id={ data.UserID }>
+			@chatHeader(data)
+			@chatMessages(data)
+			@chatInput(data)
+		</div>
+		@chatSSEScript(data.ChatID)
+	}
+}
+
+templ chatHeader(data ChatViewData) {
+	<div class="border-b px-4 py-3 flex items-center justify-between shrink-0">
+		<div class="flex items-center gap-3">
+			@button.Button(button.Props{
+				Variant: button.VariantGhost,
+				Size:    button.SizeIcon,
+				Href:    "/chats",
+			}) {
+				@icon.Icon("arrow-left")(icon.Props{Size: 18})
+			}
+			<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+				@icon.Icon("message-circle")(icon.Props{Size: 18})
+			</div>
+			<div>
+				<p class="font-semibold text-sm">{ data.Title }</p>
+				<p class="text-xs text-muted-foreground">{ fmt.Sprintf("%d members", len(data.Members)) }</p>
+			</div>
+		</div>
+		<div class="flex items-center gap-1">
+			@button.Button(button.Props{
+				Variant: button.VariantGhost,
+				Size:    button.SizeIcon,
+				Attributes: templ.Attributes{
+					"onclick": "document.getElementById('members-dialog').showModal()",
+				},
+			}) {
+				@icon.Icon("users")(icon.Props{Size: 18})
+			}
+		</div>
+	</div>
+	@membersDialog(data)
+}
+
+templ membersDialog(data ChatViewData) {
+	<dialog id="members-dialog" class="hidden open:flex backdrop:bg-black/50 rounded-lg border bg-background p-0 w-full max-w-sm shadow-lg fixed inset-0 m-auto z-50">
+		<div class="p-6 space-y-4">
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold">Members</h2>
+				<button type="button" onclick="this.closest('dialog').close()" class="text-muted-foreground hover:text-foreground">
+					@icon.Icon("x")(icon.Props{Size: 18})
+				</button>
+			</div>
+			<div class="divide-y">
+				for _, m := range data.Members {
+					<div class="flex items-center gap-3 py-2">
+						@avatar.Avatar(avatar.Props{Class: "h-8 w-8"}) {
+							@avatar.Fallback() {
+								{ initials(m.Name) }
+							}
+						}
+						<div>
+							<p class="text-sm font-medium">{ m.Name }</p>
+							<p class="text-xs text-muted-foreground">{ m.Email }</p>
+						</div>
+					</div>
+				}
+			</div>
+			<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/chats/%d/members", data.ChatID)) } class="flex items-center gap-2 pt-2 border-t">
+				<div class="flex-1">
+					@input.Input(input.Props{
+						Name:        "email",
+						Placeholder: "Add by email...",
+						Class:       "h-9",
+					})
+				</div>
+				@button.Button(button.Props{
+					Size: button.SizeSm,
+					Type: "submit",
+				}) {
+					Add
+				}
+			</form>
+		</div>
+	</dialog>
+}
+
+templ chatMessages(data ChatViewData) {
+	<div id="messages-container" class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+		if len(data.Messages) == 0 {
+			<div class="flex items-center justify-center h-full">
+				<div class="text-center">
+					<div class="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+						@icon.Icon("message-circle")(icon.Props{Size: 24})
+					</div>
+					<p class="text-sm text-muted-foreground">No messages yet. Say hello!</p>
+				</div>
+			</div>
+		}
+		for _, msg := range data.Messages {
+			@MessageBubble(msg)
+		}
+	</div>
+}
+
+templ MessageBubble(msg MessageView) {
+	<div class={ "flex", templ.KV("justify-end", msg.IsSent), templ.KV("justify-start", !msg.IsSent) }>
+		if !msg.IsSent {
+			@avatar.Avatar(avatar.Props{Class: "h-8 w-8 shrink-0 mt-1"}) {
+				@avatar.Fallback() {
+					{ initials(msg.SenderName) }
+				}
+			}
+		}
+		<div
+			class={
+				"max-w-[70%] rounded-2xl px-4 py-2",
+				templ.KV("bg-primary text-primary-foreground", msg.IsSent),
+				templ.KV("bg-muted", !msg.IsSent),
+			}
+		>
+			if !msg.IsSent {
+				<p class="text-xs font-medium mb-1">{ msg.SenderName }</p>
+			}
+			<p class="text-sm whitespace-pre-wrap">{ msg.Content }</p>
+			<p
+				class={
+					"text-xs mt-1",
+					templ.KV("text-primary-foreground/70", msg.IsSent),
+					templ.KV("text-muted-foreground", !msg.IsSent),
+				}
+			>{ msg.Time }</p>
+		</div>
+	</div>
+}
+
+templ chatInput(data ChatViewData) {
+	<div class="border-t px-4 py-3 shrink-0">
+		<form id="message-form" class="flex items-center gap-2" onsubmit="sendMessage(event)">
+			@input.Input(input.Props{
+				Name:        "content",
+				Placeholder: "Type a message...",
+				Class:       "flex-1",
+				Attributes: templ.Attributes{
+					"autocomplete": "off",
+				},
+			})
+			@button.Button(button.Props{
+				Size: button.SizeIcon,
+				Type: "submit",
+			}) {
+				@icon.Icon("send")(icon.Props{Size: 18})
+			}
+		</form>
+	</div>
+}
+
+templ chatSSEScript(chatID int64) {
+	<script>
+		(function() {
+			const chatID = {{ fmt.Sprintf("%d", chatID) }};
+			const container = document.getElementById('messages-container');
+			const form = document.getElementById('message-form');
+			const input = form.querySelector('input[name="content"]');
+
+			function scrollToBottom() {
+				container.scrollTop = container.scrollHeight;
+			}
+			scrollToBottom();
+
+			// SSE for real-time messages
+			const currentUserID = container.closest('[data-user-id]').dataset.userId;
+			const evtSource = new EventSource('/chats/' + chatID + '/sse');
+			evtSource.onmessage = function(event) {
+				const lines = event.data.split('\n');
+				const senderLine = lines[0];
+				if (senderLine.startsWith('sender:')) {
+					const senderID = senderLine.substring(7);
+					if (senderID === currentUserID) return;
+					lines.shift();
+				}
+				const html = lines.join('\n');
+				const tmp = document.createElement('div');
+				tmp.innerHTML = html;
+				while (tmp.firstChild) {
+					container.appendChild(tmp.firstChild);
+				}
+				const emptyState = container.querySelector('.flex.items-center.justify-center.h-full');
+				if (emptyState) emptyState.remove();
+				scrollToBottom();
+			};
+
+			// Send message via fetch
+			window.sendMessage = async function(e) {
+				e.preventDefault();
+				const content = input.value.trim();
+				if (!content) return;
+				input.value = '';
+
+				const formData = new FormData();
+				formData.append('content', content);
+
+				try {
+					const resp = await fetch('/chats/' + chatID + '/messages', {
+						method: 'POST',
+						body: formData,
+						headers: { 'Accept': 'text/html' },
+					});
+					if (resp.ok) {
+						const html = await resp.text();
+						const tmp = document.createElement('div');
+						tmp.innerHTML = html;
+						// Remove empty state if present
+						const emptyState = container.querySelector('.flex.items-center.justify-center.h-full');
+						if (emptyState) emptyState.remove();
+						while (tmp.firstChild) {
+							container.appendChild(tmp.firstChild);
+						}
+						scrollToBottom();
+					}
+				} catch (err) {
+					console.error('send failed', err);
+				}
+
+				input.focus();
+			};
+
+			// Enter to send
+			input.addEventListener('keydown', function(e) {
+				if (e.key === 'Enter' && !e.shiftKey) {
+					e.preventDefault();
+					form.dispatchEvent(new Event('submit'));
+				}
+			});
+		})();
+	</script>
+}
+
+func initials(name string) string {
+	parts := strings.Fields(name)
+	if len(parts) == 0 {
+		return "?"
+	}
+	if len(parts) == 1 {
+		if len(parts[0]) >= 2 {
+			return strings.ToUpper(parts[0][:2])
+		}
+		return strings.ToUpper(parts[0])
+	}
+	return strings.ToUpper(string(parts[0][0])) + strings.ToUpper(string(parts[len(parts)-1][0]))
+}
