@@ -15,7 +15,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"golang.org/x/oauth2"
 
-	"srv.housecat.com/db/dbgen"
+	"github.com/housecat-inc/go-template/db/dbgen"
 )
 
 type OAuthConfig struct {
@@ -55,6 +55,16 @@ func (s *Server) getSession(r *http.Request) (dbgen.Session, error) {
 func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		r := c.Request()
+
+		// Trust localhost unconditionally — this is the agentic browser tool.
+		// Real users come through the proxy with a different Host header.
+		if strings.HasPrefix(r.Host, "localhost") {
+			c.Set("logoutURL", "")
+			c.Set("userEmail", "tool@localhost")
+			c.Set("userID", "browser-tool")
+			return next(c)
+		}
+
 		var logoutURL, userEmail, userID string
 
 		session, err := s.getSession(r)

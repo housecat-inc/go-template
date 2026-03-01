@@ -1,5 +1,7 @@
 package assets
 
+//go:generate tailwindcss -i css/input.css -o css/output.css --minify
+
 import "embed"
 
 // FS contains the built static assets (css/output.css, js/*.js).

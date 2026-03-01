@@ -10,6 +10,15 @@ Build with `make build`, then run `./bin/srv`. The server listens on port 8000 b
 
 ### First-time setup
 
+Clone the repo:
+
+```bash
+git clone https://github.com/housecat-inc/go-template
+cd go-template
+```
+
+Install dependencies:
+
 ```bash
 # Install dependencies
 curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.1/tailwindcss-linux-x64 && chmod +x tailwindcss-linux-x64 && sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss

@@ -1,4 +1,4 @@
-module srv.housecat.com
+module github.com/housecat-inc/go-template
 
 go 1.26.0
 

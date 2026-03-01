@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"srv.housecat.com/ui/components/badge"
-	"srv.housecat.com/ui/components/button"
-	"srv.housecat.com/ui/components/card"
-	"srv.housecat.com/ui/components/table"
-	"srv.housecat.com/ui/layouts"
+	"github.com/housecat-inc/go-template/ui/components/badge"
+	"github.com/housecat-inc/go-template/ui/components/button"
+	"github.com/housecat-inc/go-template/ui/components/card"
+	"github.com/housecat-inc/go-template/ui/components/table"
+	"github.com/housecat-inc/go-template/ui/layouts"
 )
 
 type PageData struct {
@@ -41,7 +41,7 @@ templ Home(data PageData) {
 				This VM has a persistent disk, sudo, HTTPS, and SSH all wired up.
 			</p>
 			if data.ActivityCount > 0 {
-				<p class="text-sm text-muted-foreground">
+				<p class="text-sm text-muted-foreground inline-flex items-center gap-1.5">
 					You have
 					@badge.Badge() {
 						{ fmt.Sprintf("%d", data.ActivityCount) }

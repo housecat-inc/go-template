@@ -15,11 +15,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"golang.org/x/oauth2"
 
-	"srv.housecat.com/assets"
-	"srv.housecat.com/db"
-	"srv.housecat.com/db/dbgen"
-	"srv.housecat.com/ui/blocks/auth"
-	"srv.housecat.com/ui/pages"
+	"github.com/housecat-inc/go-template/assets"
+	"github.com/housecat-inc/go-template/db"
+	"github.com/housecat-inc/go-template/db/dbgen"
+	"github.com/housecat-inc/go-template/ui/blocks/auth"
+	"github.com/housecat-inc/go-template/ui/pages"
 )
 
 type Server struct {
@@ -69,6 +69,11 @@ func (s *Server) Serve(addr string) error {
 func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
 
+	// On localhost, skip sign-in — RequireAuth on /home will auto-authenticate
+	if strings.HasPrefix(r.Host, "localhost") {
+		return c.Redirect(http.StatusFound, "/home")
+	}
+
 	if _, err := s.getSession(r); err == nil {
 		return c.Redirect(http.StatusFound, "/home")
 	}
@@ -94,9 +99,11 @@ func (s *Server) HandleHome(c echo.Context) error {
 		q := dbgen.New(s.DB)
 		if r.Method == "GET" {
 			err := q.InsertActivity(r.Context(), dbgen.InsertActivityParams{
-				ActorID:   userID,
-				ActorType: "user",
-				Action:    "logged_in",
+				ActorID:    userID,
+				ActorType:  "user",
+				Action:     "logged_in",
+				ObjectID:   userID,
+				ObjectType: "user",
 			})
 			if err != nil {
 				slog.Warn("insert activity", "error", err, "user_id", userID)
