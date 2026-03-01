@@ -27,31 +27,35 @@ func main() {
 }
 
 func run() error {
-	appID := envOr("GH_APP_ID", "2976885")
 	pemFile := envOr("GH_APP_PEM", filepath.Join(os.Getenv("HOME"), ".ssh", "shelley-agent.pem"))
-	repo := os.Getenv("GH_APP_REPO")
 
-	now := time.Now()
-	jwt, err := createJWT(appID, pemFile, now)
-	if err != nil {
-		return fmt.Errorf("creating JWT: %w", err)
-	}
+	// If PEM file exists, authenticate as the GitHub App.
+	// Otherwise, fall through to gh with existing auth (dev machine).
+	if _, err := os.Stat(pemFile); err == nil {
+		appID := envOr("GH_APP_ID", "2976885")
+		repo := os.Getenv("GH_APP_REPO")
 
-	installationID, err := getInstallationID(jwt)
-	if err != nil {
-		return fmt.Errorf("getting installation ID: %w", err)
-	}
+		jwt, err := createJWT(appID, pemFile, time.Now())
+		if err != nil {
+			return fmt.Errorf("creating JWT: %w", err)
+		}
 
-	token, err := getAccessToken(jwt, installationID, repo)
-	if err != nil {
-		return fmt.Errorf("getting access token: %w", err)
-	}
+		installationID, err := getInstallationID(jwt)
+		if err != nil {
+			return fmt.Errorf("getting installation ID: %w", err)
+		}
 
-	loginCmd := exec.Command("gh", "auth", "login", "--with-token")
-	loginCmd.Stdin = strings.NewReader(token)
-	loginCmd.Stderr = io.Discard
-	if err := loginCmd.Run(); err != nil {
-		return fmt.Errorf("gh auth login: %w", err)
+		token, err := getAccessToken(jwt, installationID, repo)
+		if err != nil {
+			return fmt.Errorf("getting access token: %w", err)
+		}
+
+		loginCmd := exec.Command("gh", "auth", "login", "--with-token")
+		loginCmd.Stdin = strings.NewReader(token)
+		loginCmd.Stderr = io.Discard
+		if err := loginCmd.Run(); err != nil {
+			return fmt.Errorf("gh auth login: %w", err)
+		}
 	}
 
 	if len(os.Args) > 1 {
