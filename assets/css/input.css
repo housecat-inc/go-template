@@ -183,6 +183,25 @@
   summary {
     display: list-item;
   }
+  table {
+    display: table;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tbody {
+    display: table-row-group;
+  }
+  tfoot {
+    display: table-footer-group;
+  }
+  tr {
+    display: table-row;
+  }
+  td,
+  th {
+    display: table-cell;
+  }
   hr {
     display: block;
   }
