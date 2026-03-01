@@ -6,11 +6,11 @@
   --breakpoint-3xl: 1600px;
   --breakpoint-4xl: 2000px;
   --font-sans:
-    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
-    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
   --font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Consolas,
-    "Liberation Mono", Menlo, monospace;
+    ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo,
+    monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -100,15 +100,47 @@
 }
 
 @layer base {
-  div, p, h1, h2, h3, h4, h5, h6, section, article, nav, aside,
-  header, footer, main, ul, ol, form, fieldset, figure,
-  figcaption, details, blockquote, pre, address, dl, dd,
-  dialog, hgroup, search {
+  div,
+  p,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  section,
+  article,
+  nav,
+  aside,
+  header,
+  footer,
+  main,
+  ul,
+  ol,
+  form,
+  fieldset,
+  figure,
+  figcaption,
+  details,
+  blockquote,
+  pre,
+  address,
+  dl,
+  dd,
+  dialog,
+  hgroup,
+  search {
     display: block;
   }
-  li { display: list-item; }
-  summary { display: list-item; }
-  hr { display: block; }
+  li {
+    display: list-item;
+  }
+  summary {
+    display: list-item;
+  }
+  hr {
+    display: block;
+  }
   * {
     @apply border-border;
     scrollbar-width: thin;
@@ -126,4 +158,8 @@
       "rlig" 1,
       "calt" 1;
   }
+}
+
+style {
+  display: none !important;
 }
