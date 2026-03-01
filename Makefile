@@ -9,6 +9,7 @@ build: generate
 
 install: build
 	sudo mkdir -p /opt/srv/bin /opt/srv/data
+	sudo rm -f /opt/srv/bin/srv
 	sudo cp bin/srv /opt/srv/bin/srv
 	sudo chown root:root /opt/srv/bin/srv
 	sudo chmod 0755 /opt/srv/bin/srv

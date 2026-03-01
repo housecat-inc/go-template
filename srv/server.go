@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +15,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"golang.org/x/oauth2"
 
+	"srv.housecat.com/assets"
 	"srv.housecat.com/db"
 	"srv.housecat.com/db/dbgen"
 	"srv.housecat.com/ui/blocks/auth"
@@ -24,7 +23,6 @@ import (
 )
 
 type Server struct {
-	AssetsDir    string
 	DB           *sql.DB
 	Hostname     string
 	OAuth        OAuthConfig
@@ -33,12 +31,9 @@ type Server struct {
 }
 
 func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
-	_, thisFile, _, _ := runtime.Caller(0)
-	baseDir := filepath.Dir(thisFile)
 	srv := &Server{
-		AssetsDir: filepath.Join(baseDir, "..", "assets"),
-		Hostname:  hostname,
-		OAuth:     oauthCfg,
+		Hostname: hostname,
+		OAuth:    oauthCfg,
 	}
 	if err := srv.setUpDatabase(dbPath); err != nil {
 		return nil, err
@@ -63,7 +58,8 @@ func (s *Server) Serve(addr string) error {
 		e.GET("/auth/callback", s.HandleAuthCallback)
 	}
 	e.GET("/auth/logout", s.HandleAuthLogout)
-	e.Static("/assets", s.AssetsDir)
+	assetHandler := http.FileServer(http.FS(assets.FS))
+	e.GET("/assets/*", echo.WrapHandler(http.StripPrefix("/assets", assetHandler)))
 
 	slog.Info("starting server", "addr", addr)
 	return e.Start(addr)
@@ -71,6 +67,19 @@ func (s *Server) Serve(addr string) error {
 
 func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
+
+	if _, err := s.getSession(r); err == nil {
+		return c.Redirect(http.StatusFound, "/home")
+	}
+
+	userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
+	userEmail := strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
+	if userID != "" && userEmail != "" {
+		if err := s.createSessionAndRedirect(c, userID, userEmail); err == nil {
+			return nil
+		}
+	}
+
 	googleURL := ""
 	if s.oauth2Config != nil {
 		googleURL = "/auth/google"
