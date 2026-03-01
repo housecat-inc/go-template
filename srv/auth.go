@@ -65,7 +65,7 @@ func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 		} else {
 			userID = strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
 			userEmail = strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
-			logoutURL = "/__exe.dev/logout?redirect=/"
+			logoutURL = "/auth/logout"
 		}
 
 		if userID == "" {
@@ -191,6 +191,14 @@ func (s *Server) HandleAuthLogout(c echo.Context) error {
 		Path:   "/",
 		MaxAge: -1,
 	})
+
+	if r.Header.Get("X-ExeDev-UserID") != "" {
+		return c.HTML(http.StatusOK, `<!DOCTYPE html>
+<html><body>
+<form id="f" method="POST" action="/__exe.dev/logout"></form>
+<script>document.getElementById('f').submit()</script>
+</body></html>`)
+	}
 
 	return c.Redirect(http.StatusFound, "/")
 }
