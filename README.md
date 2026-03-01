@@ -14,17 +14,27 @@ Install dependencies:
 curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.1/tailwindcss-linux-x64 && chmod +x tailwindcss-linux-x64 && sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss
 ```
 
-To run the server as a systemd service:
+### Directory layout
+
+The production layout separates the binary from its data:
+
+```
+/opt/srv/
+├── bin/srv          # binary (owned root:root, 0755)
+└── data/            # working directory (owned exedev:exedev, 0700)
+    ├── db.sqlite3   # database
+    └── .env         # environment (optional, 0600)
+```
+
+The service binary is read-only to the app process. Only `/opt/srv/data` is writable, so a vulnerability in the web app cannot modify the binary, read the home directory, or write elsewhere on the filesystem.
+
+### First-time setup
 
 ```bash
-# Install the service file
+make install
 sudo cp srv.service /etc/systemd/system/srv.service
-
-# Reload systemd and enable the service
 sudo systemctl daemon-reload
 sudo systemctl enable srv.service
-
-# Start the service
 sudo systemctl start srv
 
 # Check status
@@ -34,12 +44,22 @@ systemctl status srv
 journalctl -u srv -f
 ```
 
-To restart after code changes:
+### Redeploying after code changes
 
 ```bash
-make build
+make install
 sudo systemctl restart srv
 ```
+
+### Systemd hardening
+
+The service file includes:
+
+- **ProtectHome=true** — `/home` is inaccessible to the service
+- **ProtectSystem=strict** — the entire filesystem is read-only except explicit paths
+- **ReadWritePaths=/opt/srv/data** — only the data directory is writable
+- **NoNewPrivileges=true** — prevents privilege escalation
+- **PrivateTmp=true** — isolated `/tmp`
 
 ## Authorization
 
@@ -55,11 +75,11 @@ As a fallback exe.dev provides authorization headers and login/logout links. Whe
 
 ## Database
 
-This template uses sqlite (`db.sqlite3`). SQL queries are managed with sqlc.
+This template uses sqlite (`db.sqlite3`) stored in `/opt/srv/data/`. SQL queries are managed with sqlc.
 
 ## UI
 
-This template uses templ and templui. Run `go tool templ generate` to generate templates. Run `go tool templui` to list and install components. 
+This template uses templ and templui. Run `go tool templ generate` to generate templates. Run `go tool templui` to list and install components.
 
 ## Code layout
 
