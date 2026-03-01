@@ -61,7 +61,7 @@ Page: Content like projects list and project overview.
 
 ### Conventions
 
-Use authenticated routes. Save CRUD activities through `db/dbgen/activities.sql.go` with display-friendly values like user email in `metadata`. Add activities to List and Get pages where applicable.
+Use authenticated routes and a user_id. Save CRUD activities through `db/dbgen/activities.sql.go` with display-friendly values like user email in `metadata`.
 
 Use `button.TypeSubmit` buttons for buttons that submit a form. templui buttons default to type="button".
 
@@ -72,6 +72,8 @@ Render timestamps as relative ("just now", "5 minutes ago", "1 hour ago") with a
 Reference this block: https://github.com/housecat-inc/templui-pro/blob/main/blocks/account/team_management_001.templ
 
 List page (`/members`), button to create new (`/members/new`), optional summary cards, items cart ("Team Members"), item cards ("Member") with a dropdown menu for controls ("Update", "Delete").
+
+Add activities feed if applicable.
 
 ### Create / Update
 
@@ -86,6 +88,8 @@ Update page (`/members/:id/edit`) is similar with different action buttons ("Can
 Reference this block: https://github.com/housecat-inc/templui-pro/blob/main/blocks/profile/profile_overview_001.templ
 
 View page (`/members/:id`), heading with name and other key info, buttons to edit (`/members/:id/edit`) and archive (dialog), cards for infomation ("Personal Info", "Contact Details", etc.) and stats ("Pro"), card for recent activities.
+
+Add activities feed if applicable.
 
 ### Archive
 
@@ -173,4 +177,5 @@ When planning a chat tool:
 
 Then use the browser skill to review. For every page:
 
+- Test every menu and button
 - Look for horizontal and vertical alignment issues
