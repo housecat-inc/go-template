@@ -23,17 +23,19 @@ import (
 )
 
 type Server struct {
-	DB           *sql.DB
-	Hostname     string
-	OAuth        OAuthConfig
-	oauth2Config *oauth2.Config
-	oidcProvider *oidc.Provider
+	DB            *sql.DB
+	Hostname      string
+	OAuth         OAuthConfig
+	oauth2Config  *oauth2.Config
+	oidcProvider  *oidc.Provider
+	sessionSecret string
 }
 
 func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
 	srv := &Server{
-		Hostname: hostname,
-		OAuth:    oauthCfg,
+		Hostname:      hostname,
+		OAuth:         oauthCfg,
+		sessionSecret: oauthCfg.SessionSecret,
 	}
 	if err := srv.setUpDatabase(dbPath); err != nil {
 		return nil, err
