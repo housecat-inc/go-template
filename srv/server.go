@@ -71,6 +71,17 @@ func (s *Server) Serve(addr string) error {
 
 func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
+
+	session, err := s.getSession(r)
+	if err == nil && session.UserID != "" {
+		return c.Redirect(http.StatusFound, "/home")
+	}
+
+	userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
+	if userID != "" {
+		return c.Redirect(http.StatusFound, "/home")
+	}
+
 	googleURL := ""
 	if s.oauth2Config != nil {
 		googleURL = "/auth/google"
