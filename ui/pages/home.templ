@@ -1,0 +1,170 @@
+package pages
+
+import (
+	"fmt"
+	"math"
+	"time"
+
+	"github.com/housecat-inc/auth/ui/components/badge"
+	"github.com/housecat-inc/auth/ui/components/card"
+	"github.com/housecat-inc/auth/ui/components/table"
+	"github.com/housecat-inc/auth/ui/layouts"
+)
+
+type PageData struct {
+	Activities    []ActivityEntry
+	ActivityCount int64
+	LogoutURL     string
+	Provider      string
+	SessionCount  int64
+	SessionStart  time.Time
+	UserEmail     string
+	UserID        string
+}
+
+type ActivityEntry struct {
+	Action    string
+	CreatedAt time.Time
+	Metadata  string
+}
+
+func relativeTime(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		m := int(math.Floor(d.Minutes()))
+		if m == 1 {
+			return "1 minute ago"
+		}
+		return fmt.Sprintf("%d minutes ago", m)
+	case d < 24*time.Hour:
+		h := int(math.Floor(d.Hours()))
+		if h == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", h)
+	default:
+		days := int(math.Floor(d.Hours() / 24))
+		if days == 1 {
+			return "1 day ago"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	}
+}
+
+templ Home(data PageData) {
+	@layouts.Layout(layouts.NavData{
+		Title:     "Housecat Auth",
+		UserEmail: data.UserEmail,
+		LogoutURL: data.LogoutURL,
+	}) {
+		<div class="space-y-8">
+			<div>
+				<h1 class="text-4xl font-bold tracking-tight">Welcome</h1>
+				<p class="text-lg text-muted-foreground mt-1">{ data.UserEmail }</p>
+			</div>
+			<div class="grid gap-4 sm:grid-cols-2">
+				@card.Card() {
+					@card.Header() {
+						@card.Title() {
+							Profile
+						}
+					}
+					@card.Content() {
+						<dl class="space-y-4 text-sm">
+							<div class="flex justify-between">
+								<dt class="text-muted-foreground">Email</dt>
+								<dd class="font-medium">{ data.UserEmail }</dd>
+							</div>
+							<div class="flex justify-between">
+								<dt class="text-muted-foreground">User ID</dt>
+								<dd class="font-mono text-xs">{ data.UserID }</dd>
+							</div>
+							<div class="flex justify-between">
+								<dt class="text-muted-foreground">Provider</dt>
+								<dd>
+									@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+										{ data.Provider }
+									}
+								</dd>
+							</div>
+						</dl>
+					}
+				}
+				@card.Card() {
+					@card.Header() {
+						@card.Title() {
+							Sessions
+						}
+					}
+					@card.Content() {
+						<dl class="space-y-4 text-sm">
+							<div class="flex justify-between">
+								<dt class="text-muted-foreground">Active sessions</dt>
+								<dd class="font-medium">{ fmt.Sprintf("%d", data.SessionCount) }</dd>
+							</div>
+							<div class="flex justify-between">
+								<dt class="text-muted-foreground">Total activities</dt>
+								<dd class="font-medium">{ fmt.Sprintf("%d", data.ActivityCount) }</dd>
+							</div>
+							if !data.SessionStart.IsZero() {
+								<div class="flex justify-between">
+									<dt class="text-muted-foreground">Current session</dt>
+									<dd
+										class="font-medium"
+										title={ data.SessionStart.Format(time.RFC3339) }
+									>{ relativeTime(data.SessionStart) }</dd>
+								</div>
+							}
+						</dl>
+					}
+				}
+			</div>
+			if len(data.Activities) > 0 {
+				@card.Card() {
+					@card.Header() {
+						@card.Title() {
+							Recent Activity
+						}
+					}
+					@card.Content() {
+						@table.Table() {
+							@table.Header() {
+								@table.Row() {
+									@table.Head() {
+										Action
+									}
+									@table.Head() {
+										Time
+									}
+									@table.Head() {
+										Details
+									}
+								}
+							}
+							@table.Body() {
+								for _, a := range data.Activities {
+									@table.Row() {
+										@table.Cell() {
+											<code class="text-sm">{ a.Action }</code>
+										}
+										@table.Cell() {
+											<span title={ a.CreatedAt.Format(time.RFC3339) }>{ relativeTime(a.CreatedAt) }</span>
+										}
+										@table.Cell() {
+											if a.Metadata != "" {
+												<span class="text-muted-foreground">{ a.Metadata }</span>
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		</div>
+	}
+}

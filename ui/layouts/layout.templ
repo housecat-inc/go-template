@@ -1,0 +1,110 @@
+package layouts
+
+import (
+	"github.com/housecat-inc/auth/ui/blocks/theme"
+	"github.com/housecat-inc/auth/ui/components/button"
+	"github.com/housecat-inc/auth/ui/components/dialog"
+	"github.com/housecat-inc/auth/ui/components/icon"
+	"github.com/housecat-inc/auth/ui/components/sheet"
+)
+
+type NavData struct {
+	LoginURL  string
+	LogoutURL string
+	Title     string
+	UserEmail string
+}
+
+templ Layout(nav NavData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ nav.Title }</title>
+			<link rel="stylesheet" href="/assets/css/output.css"/>
+			@theme.Script()
+		</head>
+		<body class="bg-background text-foreground min-h-screen">
+			@dialog.Script()
+			@sheet.Sheet(sheet.Props{
+				Side: sheet.SideLeft,
+			}) {
+				<div class="min-h-screen bg-background">
+					<header class="h-16 bg-background border-b px-6 flex items-center fixed top-0 left-0 right-0 z-40">
+						<div class="w-full flex items-center justify-between">
+							<div class="flex items-center gap-4">
+								<div class="lg:hidden">
+									@sheet.Trigger() {
+										@button.Button(button.Props{
+											Variant: button.VariantOutline,
+											Size:    button.SizeIcon,
+										}) {
+											@icon.Menu(icon.Props{Size: 20})
+										}
+									}
+								</div>
+								<span class="font-semibold text-lg">{ nav.Title }</span>
+							</div>
+							<div class="flex items-center gap-2">
+								@theme.ThemeSwitcher()
+								if nav.UserEmail != "" {
+									<span class="text-sm text-muted-foreground hidden sm:inline">
+										Signed in as <strong class="text-foreground">{ nav.UserEmail }</strong>
+									</span>
+									@button.Button(button.Props{
+										Variant: button.VariantGhost,
+										Size:    button.SizeSm,
+										Href:    nav.LogoutURL,
+									}) {
+										Logout
+									}
+								} else {
+									<span class="text-sm text-muted-foreground hidden sm:inline">Not signed in</span>
+									@button.Button(button.Props{
+										Variant: button.VariantGhost,
+										Size:    button.SizeSm,
+										Href:    nav.LoginURL,
+									}) {
+										Login
+									}
+								}
+							</div>
+						</div>
+					</header>
+					<div class="flex h-screen pt-16">
+						<aside class="hidden lg:block w-64 bg-card border-r">
+							@Sidebar()
+						</aside>
+						<div class="flex-1 flex flex-col">
+							<main class="flex-1 overflow-y-auto p-6 flex justify-center">
+								<div class="max-w-4xl w-full space-y-6">
+									{ children... }
+								</div>
+							</main>
+						</div>
+					</div>
+				</div>
+				@sheet.Content() {
+					@Sidebar()
+				}
+			}
+		</body>
+	</html>
+}
+
+templ Sidebar() {
+	<div class="h-full flex flex-col">
+		<nav class="flex-1 p-4 space-y-1">
+			@button.Button(button.Props{
+				Variant:   button.VariantGhost,
+				FullWidth: true,
+				Class:     "justify-start",
+				Href:      "/home",
+			}) {
+				@icon.House(icon.Props{Size: 16})
+				Home
+			}
+		</nav>
+	</div>
+}

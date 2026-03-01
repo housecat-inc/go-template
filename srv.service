@@ -1,0 +1,26 @@
+[Unit]
+Description=Housecat Auth
+
+[Service]
+Type=simple
+User=exedev
+Group=exedev
+WorkingDirectory=/opt/srv/data
+ExecStart=/opt/srv/bin/srv
+Restart=always
+RestartSec=5
+Environment=HOME=/home/exedev
+Environment=USER=exedev
+EnvironmentFile=-/opt/srv/data/.env
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/srv/data
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

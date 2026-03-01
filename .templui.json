@@ -1,0 +1,7 @@
+{
+  "componentsDir": "ui/components",
+  "utilsDir": "ui/utils",
+  "moduleName": "github.com/housecat-inc/auth",
+  "jsDir": "assets/js",
+  "jsPublicPath": "/assets/js"
+}
