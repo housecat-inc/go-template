@@ -3,11 +3,13 @@ name: git
 description: UX workflow — Design standards, ASCII wireframes, and tempui / templui-pro tools
 ---
 
-When designing a new UX:
+When designing a new UX we want to do rapid design iteration, by scanning existing and reusable components, then with planning with ASCII wireframes, then with pages with simple service stubs.
 
-Scan TemplUI Pro blocks and TemplUI components. Build with templ fragments remixed from these.
+DO NOT CODE before planning with ASCII wireframes with the developer. DO NOT CODE complex database and services without confirmation. Both are a waste of time until we're more sure we're building the right thing.
 
-Plan with ASCII wireframes. Design with elements remixed from these.
+1. Scan TemplUI Pro blocks and TemplUI components. Build with templ fragments remixed from these.
+2. Plan with ASCII wireframes. Design with elements remixed from these.
+3. Build pages with simple service stubs if possible first.
 
 ## Design System
 
