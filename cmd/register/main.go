@@ -269,6 +269,14 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	fmt.Printf("    Proxy:       %s\n", proxyBaseClean)
 	fmt.Printf("    insteadOf:   https://github.com/ -> %s/github.com/\n", proxyBaseClean)
 
+	fmt.Println("==> Smoke testing git proxy...")
+	out, err := exec.Command("git", "ls-remote", "--heads", "https://github.com/housecat-inc/go-template.git").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git ls-remote failed: %w\n%s", err, out)
+	}
+	lines := strings.Count(strings.TrimSpace(string(out)), "\n") + 1
+	fmt.Printf("    git ls-remote: OK (%d refs)\n", lines)
+
 	return nil
 }
 
