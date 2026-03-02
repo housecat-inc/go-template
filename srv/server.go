@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -78,11 +79,21 @@ func (s *Server) HandleRoot(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/home")
 	}
 
+	redirect := c.QueryParam("redirect")
+
 	googleURL := ""
 	if s.relyingParty != nil {
 		googleURL = "/auth/google"
+		if redirect != "" {
+			googleURL += "?redirect=" + url.QueryEscape(redirect)
+		}
 	}
-	component := auth.SignInPage("/auth/exedev", googleURL)
+
+	loginURL := "/auth/exedev"
+	if redirect != "" {
+		loginURL += "?redirect=" + url.QueryEscape(redirect)
+	}
+	component := auth.SignInPage(loginURL, googleURL)
 	return component.Render(r.Context(), c.Response())
 }
 
