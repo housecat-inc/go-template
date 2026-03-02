@@ -250,9 +250,8 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	// git url.<base>.insteadOf rewrites github.com URLs to go through the proxy
 	_ = shell("git", "config", "--global", "url."+proxyBase+"/github.com/.insteadOf", "https://github.com/")
 
-	// gh CLI: set GH_HOST and GH_TOKEN to route through proxy
-	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport GH_HOST=%s/api.github.com\nexport GH_TOKEN=x\n",
-		proxyBaseClean)
+	ghProxyURL := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost
+	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport GH_PROXY_URL=%s\n", ghProxyURL)
 
 	bashrc := filepath.Join(os.Getenv("HOME"), ".bashrc")
 	if f, err := os.OpenFile(bashrc, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644); err == nil {
@@ -262,6 +261,11 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 
 	fmt.Printf("    Proxy:       %s\n", proxyBaseClean)
 	fmt.Printf("    insteadOf:   https://github.com/ -> %s/github.com/\n", proxyBaseClean)
+
+	fmt.Println("==> Installing gh-app...")
+	if err := shell("go", "install", "github.com/housecat-inc/go-template/cmd/gh-app@latest"); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: install gh-app: %v\n", err)
+	}
 
 	fmt.Println("==> Smoke testing git proxy...")
 	out, err := exec.Command("git", "ls-remote", "--heads", "https://github.com/housecat-inc/go-template.git").CombinedOutput()
