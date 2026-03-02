@@ -24,7 +24,7 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: register https://$TOKEN@hostname/register")
+		return fmt.Errorf("usage: register <register-url> [repo]\n  repo: GitHub org/name to clone and build (default: housecat-inc/go-template)")
 	}
 
 	u, err := url.Parse(os.Args[1])
@@ -38,16 +38,20 @@ func run() error {
 	endpoint := fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.Path)
 	issuer := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 
+	repo := "housecat-inc/go-template"
+	if len(os.Args) >= 3 {
+		repo = os.Args[2]
+	}
+	_, repoName, _ := strings.Cut(repo, "/")
+	if repoName == "" {
+		return fmt.Errorf("invalid repo %q: expected org/name", repo)
+	}
+
 	hostname, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("get hostname: %w", err)
 	}
 	appName, _, _ := strings.Cut(hostname, ".")
-
-	// Service setup
-	if err := serviceSetup(); err != nil {
-		return fmt.Errorf("service setup: %w", err)
-	}
 
 	// Register client via RFC 7591
 	clientID, clientSecret, scope, err := registerClient(token, endpoint, appName)
@@ -71,6 +75,11 @@ func run() error {
 		fmt.Println("==> No git scope granted, skipping git proxy setup")
 	}
 
+	// Clone and build the repo
+	if err := cloneAndBuild(repo, repoName); err != nil {
+		return fmt.Errorf("clone and build: %w", err)
+	}
+
 	// Write .env
 	if err := writeEnv(clientID, clientSecret, issuer, sessionSecret); err != nil {
 		return fmt.Errorf("write env: %w", err)
@@ -84,13 +93,36 @@ func run() error {
 
 	fmt.Println("==> Done")
 	fmt.Printf("    App:       %s\n", appName)
+	fmt.Printf("    Repo:      %s\n", repo)
 	fmt.Printf("    Client ID: %s\n", clientID)
 	_ = shell("systemctl", "status", "srv", "--no-pager")
 	return nil
 }
 
-func serviceSetup() error {
-	// Install tailwindcss
+func cloneAndBuild(repo, repoName string) error {
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, repoName)
+
+	if _, err := os.Stat(dir); err == nil {
+		fmt.Printf("==> %s already exists, pulling...\n", dir)
+		cmd := exec.Command("git", "pull", "origin", "main")
+		cmd.Dir = dir
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git pull: %w", err)
+		}
+	} else {
+		fmt.Printf("==> Cloning %s...\n", repo)
+		if err := shell("git", "clone", "-b", "main", "https://github.com/"+repo+".git", dir); err != nil {
+			return fmt.Errorf("git clone: %w", err)
+		}
+	}
+
+	return serviceSetup(dir)
+}
+
+func serviceSetup(dir string) error {
 	if _, err := exec.LookPath("tailwindcss"); err != nil {
 		fmt.Println("==> Installing tailwindcss...")
 		if err := shell("bash", "-c", "curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.1/tailwindcss-linux-x64 && chmod +x tailwindcss-linux-x64 && sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss"); err != nil {
@@ -100,15 +132,18 @@ func serviceSetup() error {
 		fmt.Println("==> tailwindcss already installed")
 	}
 
-	// Build and install
-	fmt.Println("==> Running make install...")
-	if err := shell("make", "install"); err != nil {
+	fmt.Printf("==> Running make install in %s...\n", dir)
+	cmd := exec.Command("make", "install")
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("make install: %w", err)
 	}
 
-	// Install systemd unit
 	fmt.Println("==> Installing systemd unit...")
-	if err := sudo("cp", "srv.service", "/etc/systemd/system/srv.service"); err != nil {
+	svcFile := filepath.Join(dir, "srv.service")
+	if err := sudo("cp", svcFile, "/etc/systemd/system/srv.service"); err != nil {
 		return fmt.Errorf("copy service file: %w", err)
 	}
 	if err := sudo("systemctl", "daemon-reload"); err != nil {
@@ -121,14 +156,13 @@ func serviceSetup() error {
 	return nil
 }
 
-// RFC 7591 OAuth 2.0 Dynamic Client Registration request.
 type clientMetadata struct {
 	ClientName              string   `json:"client_name"`
-	RedirectURIs            []string `json:"redirect_uris"`
 	GrantTypes              []string `json:"grant_types"`
+	RedirectURIs            []string `json:"redirect_uris"`
 	ResponseTypes           []string `json:"response_types"`
-	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 	Scope                   string   `json:"scope"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 }
 
 type clientRegistrationResponse struct {
@@ -225,7 +259,6 @@ func writeEnv(clientID, clientSecret, issuer, sessionSecret string) error {
 func setupGitProxy(issuer, clientID, clientSecret string) error {
 	fmt.Println("==> Setting up git proxy...")
 
-	// Probe /gitproxy/ca.crt to detect if git proxy is enabled
 	resp, err := http.Get(issuer + "/gitproxy/ca.crt")
 	if err != nil {
 		return fmt.Errorf("probe git proxy: %w", err)
@@ -236,18 +269,15 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 		return nil
 	}
 
-	// Parse issuer to get host (with port if present)
 	issuerURL, err := url.Parse(issuer)
 	if err != nil {
 		return fmt.Errorf("parse issuer: %w", err)
 	}
 	proxyHost := issuerURL.Host
 
-	// Reverse proxy URL with embedded credentials (Basic auth)
 	proxyBase := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost
 	proxyBaseClean := "https://" + proxyHost
 
-	// git url.<base>.insteadOf rewrites github.com URLs to go through the proxy
 	_ = shell("git", "config", "--global", "url."+proxyBase+"/github.com/.insteadOf", "https://github.com/")
 
 	ghProxyURL := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost
