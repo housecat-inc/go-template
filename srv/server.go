@@ -16,12 +16,14 @@ import (
 	"github.com/housecat-inc/auth/assets"
 	"github.com/housecat-inc/auth/db"
 	"github.com/housecat-inc/auth/db/dbgen"
+	"github.com/housecat-inc/auth/exedev"
 	"github.com/housecat-inc/auth/ui/blocks/auth"
 	"github.com/housecat-inc/auth/ui/pages"
 )
 
 type Server struct {
 	DB            *sql.DB
+	ExeDev        *exedev.Client
 	Hostname      string
 	OAuth         OAuthConfig
 	oauth2Config  *oauth2.Config
@@ -29,7 +31,7 @@ type Server struct {
 	sessionSecret string
 }
 
-func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
+func New(dbPath, hostname string, oauthCfg OAuthConfig, exedevKeyPath string) (*Server, error) {
 	srv := &Server{
 		Hostname:      hostname,
 		sessionSecret: oauthCfg.SessionSecret,
@@ -41,6 +43,14 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig) (*Server, error) {
 	if oauthCfg.ClientID != "" {
 		if err := srv.setUpOIDC(context.Background()); err != nil {
 			return nil, errors.Wrap(err, "setup oidc")
+		}
+	}
+	if exedevKeyPath != "" {
+		client, err := exedev.New(exedevKeyPath)
+		if err != nil {
+			slog.Warn("exe.dev client disabled", "error", err)
+		} else {
+			srv.ExeDev = client
 		}
 	}
 	return srv, nil
@@ -59,6 +69,11 @@ func (s *Server) Serve(addr string) error {
 		e.GET("/auth/google/callback", s.HandleAuthCallback)
 	}
 	e.GET("/auth/logout", s.HandleAuthLogout)
+
+	admin := e.Group("/admin", s.RequireAuth, s.RequireAdmin)
+	admin.GET("/vms", s.HandleAdminVMs)
+	admin.POST("/browser-link", s.HandleAdminBrowserLink)
+
 	assetHandler := http.FileServer(http.FS(assets.FS))
 	e.GET("/assets/*", echo.WrapHandler(http.StripPrefix("/assets", assetHandler)))
 
@@ -153,7 +168,7 @@ func (s *Server) HandleHome(c echo.Context) error {
 		UserID:        userID,
 	}
 
-	component := pages.Home(data)
+	component := pages.Home(data, isAdmin(userEmail))
 	return component.Render(ctx, c.Response())
 }
 

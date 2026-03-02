@@ -90,16 +90,6 @@ func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		r := c.Request()
 
-		// Trust localhost unconditionally — this is the agentic browser tool.
-		// Real users come through the proxy with a different Host header.
-		if strings.HasPrefix(r.Host, "localhost") {
-			c.Set("logoutURL", "")
-			c.Set("provider", "localhost")
-			c.Set("userEmail", "tool@localhost")
-			c.Set("userID", "browser-tool")
-			return next(c)
-		}
-
 		var logoutURL, provider, userEmail, userID string
 
 		session, err := s.getSession(r)
@@ -108,6 +98,11 @@ func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 			provider = session.Provider
 			userEmail = session.Email
 			userID = session.UserID
+		} else if strings.HasPrefix(r.Host, "localhost") {
+			logoutURL = ""
+			provider = "localhost"
+			userEmail = "tool@localhost"
+			userID = "browser-tool"
 		} else {
 			userID = strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
 			userEmail = strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
@@ -123,6 +118,20 @@ func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 		c.Set("provider", provider)
 		c.Set("userEmail", userEmail)
 		c.Set("userID", userID)
+		return next(c)
+	}
+}
+
+func isAdmin(email string) bool {
+	return strings.HasSuffix(strings.ToLower(email), "@housecat.com")
+}
+
+func (s *Server) RequireAdmin(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		email, _ := c.Get("userEmail").(string)
+		if !isAdmin(email) {
+			return echo.NewHTTPError(http.StatusForbidden, "admin access required")
+		}
 		return next(c)
 	}
 }

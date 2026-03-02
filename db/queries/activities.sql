@@ -23,3 +23,9 @@ LIMIT ?;
 -- name: CountActivitiesByActor :one
 SELECT COUNT(*) FROM activities
 WHERE actor_id = ?;
+
+-- name: ListActivitiesByObjectType :many
+SELECT * FROM activities
+WHERE object_type = ?
+ORDER BY created_at DESC
+LIMIT ?;

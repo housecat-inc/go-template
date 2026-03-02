@@ -144,6 +144,52 @@ func (q *Queries) ListActivitiesByObject(ctx context.Context, arg ListActivities
 	return items, nil
 }
 
+const listActivitiesByObjectType = `-- name: ListActivitiesByObjectType :many
+SELECT id, actor_id, actor_type, "action", object_id, object_type, target_id, target_type, metadata, created_at FROM activities
+WHERE object_type = ?
+ORDER BY created_at DESC
+LIMIT ?
+`
+
+type ListActivitiesByObjectTypeParams struct {
+	ObjectType string `json:"object_type"`
+	Limit      int64  `json:"limit"`
+}
+
+func (q *Queries) ListActivitiesByObjectType(ctx context.Context, arg ListActivitiesByObjectTypeParams) ([]Activity, error) {
+	rows, err := q.db.QueryContext(ctx, listActivitiesByObjectType, arg.ObjectType, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Activity{}
+	for rows.Next() {
+		var i Activity
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.ActorType,
+			&i.Action,
+			&i.ObjectID,
+			&i.ObjectType,
+			&i.TargetID,
+			&i.TargetType,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActivitiesByTarget = `-- name: ListActivitiesByTarget :many
 SELECT id, actor_id, actor_type, "action", object_id, object_type, target_id, target_type, metadata, created_at FROM activities
 WHERE target_type = ? AND target_id = ?

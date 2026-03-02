@@ -38,7 +38,7 @@ func run() error {
 		SessionSecret: os.Getenv("SESSION_SECRET"),
 	}
 
-	server, err := srv.New("db.sqlite3", hostname, oauthCfg)
+	server, err := srv.New("db.sqlite3", hostname, oauthCfg, os.Getenv("EXEDEV_KEY_PATH"))
 	if err != nil {
 		return errors.Wrap(err, "create server")
 	}
