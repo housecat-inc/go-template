@@ -14,7 +14,7 @@ import (
 	"github.com/housecat-inc/auth/ui/pages"
 )
 
-var availableScopes = []string{"openid", "email", "profile"}
+var availableScopes = []string{"email", "git", "openid", "profile"}
 
 func (s *Server) HandleClients(c echo.Context) error {
 	r := c.Request()

@@ -27,7 +27,8 @@ import (
 type Server struct {
 	DB            *sql.DB
 	ExeDev        *exedev.Client
-	Hostname      string
+	GitProxy   http.Handler
+	Hostname   string
 	OAuth         OAuthConfig
 	oauth2Config  *oauth2.Config
 	googleOIDC    *googleoidc.Provider
@@ -112,6 +113,14 @@ func (s *Server) Serve(addr string) error {
 	clients.POST("/:id/archive", s.HandleClientsArchive)
 
 	e.POST("/register", s.HandleRegister)
+
+	e.GET("/gitproxy/ca.crt", s.HandleGitProxyProbe)
+
+	if s.GitProxy != nil {
+		gp := echo.WrapHandler(s.GitProxy)
+		e.Any("/github.com/*", gp)
+		e.Any("/api.github.com/*", gp)
+	}
 
 	// OIDC login callback (the OP redirects here for user authentication)
 	e.GET("/oidc/login", hcoidc.LoginHandler(s.oidcStorage, s.oidcOP, func(r *http.Request) (string, string, error) {

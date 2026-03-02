@@ -119,7 +119,7 @@ func (s *Server) HandleRegister(c echo.Context) error {
 		req.Scope = "openid email profile"
 	}
 
-	allowed := map[string]bool{"openid": true, "email": true, "profile": true}
+	allowed := map[string]bool{"email": true, "git": true, "openid": true, "profile": true}
 	for _, s := range strings.Fields(req.Scope) {
 		if !allowed[s] {
 			return c.JSON(http.StatusBadRequest, registrationError{

@@ -216,9 +216,9 @@ script setupVMScript(hostname string) {
 			const data = await resp.json();
 
 			const origin = window._setupHostname;
-			const instructions = `git clone -b main https://github.com/housecat-inc/go-template
+			const instructions = `git clone -b main https://github.com/housecat-inc/go-template go-template
 cd go-template
-go run ./cmd/register --token ${data.token} ${origin}/register`;
+go run ./cmd/register ${origin.replace('://', '://' + data.token + '@')}/register`;
 
 			window._setupInstructions = instructions;
 

@@ -95,10 +95,10 @@ func TestBuildVMPrompt(t *testing.T) {
 	a := assert.New(t)
 
 	prompt := buildVMPrompt("https://auth.example.com", "my-token")
-	a.Contains(prompt, "--token my-token")
-	a.Contains(prompt, "https://auth.example.com/register")
-	a.NotContains(prompt, "my-token@")
+	a.Contains(prompt, "https://my-token@auth.example.com/register")
+	a.Contains(prompt, "go run ./cmd/register")
+	a.Contains(prompt, "clone -b main")
 
 	prompt = buildVMPrompt("http://localhost:8000", "tok")
-	a.Contains(prompt, "http://localhost:8000/register")
+	a.Contains(prompt, "http://tok@localhost:8000/register")
 }

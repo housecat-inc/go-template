@@ -77,6 +77,58 @@ ssh exe.dev share set-public daemon-juliet
 
 As a fallback exe.dev provides authorization headers like `X-ExeDev-UserID` and `X-ExeDev-Email` that are used to create a session.
 
+## Git Proxy
+
+A reverse proxy mounted on the main server at `/github.com/*` and `/api.github.com/*`. It injects GitHub App installation tokens and enforces per-client repo/branch policies. VMs use it instead of holding the GitHub App PEM directly.
+
+### Setup
+
+1. Copy the GitHub App PEM to the data directory:
+
+```bash
+sudo cp shelley-agent.pem /opt/srv/data/gh-app.pem
+sudo chown exedev:exedev /opt/srv/data/gh-app.pem
+sudo chmod 600 /opt/srv/data/gh-app.pem
+```
+
+2. Add to `/opt/srv/data/.env`:
+
+```bash
+GH_APP_PEM_PATH=gh-app.pem
+GH_APP_ID=2976885
+GH_INSTALLATION_ID=113185174
+GH_ALLOWED_REPOS=housecat-inc/go-template
+```
+
+The installation ID identifies which GitHub org/account the app is installed on. Find it with `gh api /app/installations --jq '.[0].id'`.
+
+3. Restart the service:
+
+```bash
+sudo systemctl restart srv
+```
+
+### VM enrollment
+
+When a new VM registers (`cmd/register` in `go-template`), it automatically:
+
+1. Requests the `git` OIDC scope during client registration
+2. Configures `git url.*.insteadOf` to route `github.com` through the proxy
+3. Embeds OIDC client credentials in the proxy URL for Basic auth
+
+### Policy
+
+The proxy enforces:
+- **Fetch/clone**: allowed for repos in `GH_ALLOWED_REPOS`
+- **Push**: allowed for repos in the allowlist AND branches matching the client's prefix
+- **API reads/writes**: allowed for repos in the allowlist
+
+### Per-client branch prefixes
+
+When a VM registers with the `git` scope, its branch prefix is `{vm-name}/*`. For example, VM `whale-orange` can only push to `whale-orange/*` branches. Unauthenticated push requests receive a 401 challenge; pushes to disallowed branches get a 403 with the allowed prefixes.
+
+Policies are derived from the `oidc_clients` table — clients with the `git` scope authenticate via Basic auth (client_id:client_secret) embedded in the proxy URL.
+
 ## Database
 
 This template uses sqlite (`db.sqlite3`). SQL queries are managed with `go tool sqlc`.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -186,8 +187,21 @@ func (s *Server) HandleAdminNewVM(c echo.Context) error {
 }
 
 func buildVMPrompt(issuerURL, token string) string {
-	return fmt.Sprintf(`git clone -b main https://github.com/housecat-inc/go-template
+	u, _ := url.Parse(issuerURL)
+	u.User = url.User(token)
+	registerURL := u.String() + "/register"
+	return fmt.Sprintf(`Clone and register this VM:
+
+git clone -b main https://github.com/housecat-inc/go-template go-template
 cd go-template
-go run ./cmd/register --token %s %s/register
-`, token, issuerURL)
+go run ./cmd/register %s
+
+This will:
+1. Register this VM as an OIDC client with the auth service
+2. Download the git proxy CA certificate
+3. Configure git and gh to use the git proxy for GitHub access
+4. Write a .env file with OIDC credentials
+
+After running, restart your shell to pick up the proxy environment variables.
+`, registerURL)
 }

@@ -204,7 +204,8 @@ func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientS
 }
 
 func (s *Storage) SetUserinfoFromScopes(ctx context.Context, userinfo *oidc.UserInfo, userID, clientID string, scopes []string) error {
-	return s.setUserinfo(userinfo, userID, "", scopes)
+	email := s.lookupEmail(ctx, userID, clientID)
+	return s.setUserinfo(userinfo, userID, email, scopes)
 }
 
 func (s *Storage) SetUserinfoFromToken(ctx context.Context, userinfo *oidc.UserInfo, tokenID, subject, origin string) error {
