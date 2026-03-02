@@ -295,7 +295,8 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	_ = shell("git", "config", "--global", "url."+proxyBase+"/github.com/.insteadOf", "https://github.com/")
 
 	ghProxyURL := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost
-	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport GH_PROXY_URL=%s\n", ghProxyURL)
+	gobin := filepath.Join(os.Getenv("HOME"), "go", "bin")
+	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport GH_PROXY_URL=%s\nexport PATH=%s:$PATH\n", ghProxyURL, gobin)
 
 	profile := filepath.Join(os.Getenv("HOME"), ".profile")
 	if f, err := os.OpenFile(profile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644); err == nil {
