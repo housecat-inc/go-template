@@ -23,7 +23,7 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: app-setup <url>\n  e.g. app-setup https://hcset_abc123@hc-auth-dev.exe.xyz/admin/apps/setup")
+		return fmt.Errorf("usage: register https://$TOKEN@hostname/register")
 	}
 
 	u, err := url.Parse(os.Args[1])
@@ -48,10 +48,10 @@ func run() error {
 		return fmt.Errorf("service setup: %w", err)
 	}
 
-	// App registration
-	clientID, clientSecret, err := registerApp(token, endpoint, appName)
+	// Register client via RFC 7591
+	clientID, clientSecret, err := registerClient(token, endpoint, appName)
 	if err != nil {
-		return fmt.Errorf("register app: %w", err)
+		return fmt.Errorf("register client: %w", err)
 	}
 
 	// Generate session secret
@@ -111,37 +111,50 @@ func serviceSetup() error {
 	return nil
 }
 
-type setupRequest struct {
-	CallbackURLs []string `json:"callback_urls"`
-	Name         string   `json:"name"`
-	Scopes       []string `json:"scopes"`
-	Token        string   `json:"token"`
+// RFC 7591 OAuth 2.0 Dynamic Client Registration request.
+type clientMetadata struct {
+	ClientName              string   `json:"client_name"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	Scope                   string   `json:"scope"`
 }
 
-type setupResponse struct {
+// RFC 7591 registration response.
+type clientRegistrationResponse struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 }
 
-func registerApp(token, endpoint, appName string) (string, string, error) {
-	fmt.Printf("==> Registering app '%s' with %s...\n", appName, endpoint)
+func registerClient(token, endpoint, appName string) (string, string, error) {
+	fmt.Printf("==> Registering client '%s' with %s...\n", appName, endpoint)
 
-	body, err := json.Marshal(setupRequest{
-		CallbackURLs: []string{
+	body, err := json.Marshal(clientMetadata{
+		ClientName: appName,
+		RedirectURIs: []string{
 			fmt.Sprintf("https://%s.exe.xyz/auth/callback", appName),
 			fmt.Sprintf("https://%s.exe.xyz:8000/auth/callback", appName),
 		},
-		Name:   appName,
-		Scopes: []string{"login", "github"},
-		Token:  token,
+		GrantTypes:              []string{"authorization_code"},
+		ResponseTypes:           []string{"code"},
+		TokenEndpointAuthMethod: "client_secret_basic",
+		Scope:                   "openid email profile",
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	resp, err := http.Post(endpoint, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", "", fmt.Errorf("POST setup: %w", err)
+		return "", "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("POST register: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -150,11 +163,11 @@ func registerApp(token, endpoint, appName string) (string, string, error) {
 		return "", "", fmt.Errorf("read response: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("setup returned %d: %s", resp.StatusCode, respBody)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("register returned %d: %s", resp.StatusCode, respBody)
 	}
 
-	var result setupResponse
+	var result clientRegistrationResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return "", "", fmt.Errorf("decode response: %w", err)
 	}

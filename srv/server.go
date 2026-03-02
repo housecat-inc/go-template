@@ -11,9 +11,8 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/labstack/echo/v4"
-	"golang.org/x/oauth2"
+	"github.com/zitadel/oidc/v3/pkg/client/rp"
 
 	"github.com/housecat-inc/go-template/assets"
 	"github.com/housecat-inc/go-template/db"
@@ -26,8 +25,7 @@ type Server struct {
 	DB            *sql.DB
 	Hostname      string
 	OAuth         OAuthConfig
-	oauth2Config  *oauth2.Config
-	oidcProvider  *oidc.Provider
+	relyingParty  rp.RelyingParty
 	sessionSecret string
 }
 
@@ -56,7 +54,7 @@ func (s *Server) Serve(addr string) error {
 	e.GET("/", s.HandleRoot)
 	e.GET("/home", s.HandleHome, s.RequireAuth)
 	e.GET("/auth/exedev", s.HandleAuthExeDev)
-	if s.oauth2Config != nil {
+	if s.relyingParty != nil {
 		e.GET("/auth/google", s.HandleAuthGoogle)
 		e.GET("/auth/callback", s.HandleAuthCallback)
 	}
@@ -81,7 +79,7 @@ func (s *Server) HandleRoot(c echo.Context) error {
 	}
 
 	googleURL := ""
-	if s.oauth2Config != nil {
+	if s.relyingParty != nil {
 		googleURL = "/auth/google"
 	}
 	component := auth.SignInPage("/auth/exedev", googleURL)

@@ -1,5 +1,6 @@
 db.*
 /bin/
 /gh-app
+/register
 *_templ.go
 output.css
