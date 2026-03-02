@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -49,7 +50,7 @@ func run() error {
 	}
 
 	// Register client via RFC 7591
-	clientID, clientSecret, err := registerClient(token, endpoint, appName)
+	clientID, clientSecret, scope, err := registerClient(token, endpoint, appName)
 	if err != nil {
 		return fmt.Errorf("register client: %w", err)
 	}
@@ -60,6 +61,15 @@ func run() error {
 		return fmt.Errorf("generate session secret: %w", err)
 	}
 	sessionSecret := hex.EncodeToString(secretBytes)
+
+	// Set up git proxy if git scope was granted
+	if hasScope(scope, "git") {
+		if err := setupGitProxy(issuer); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: git proxy setup: %v\n", err)
+		}
+	} else {
+		fmt.Println("==> No git scope granted, skipping git proxy setup")
+	}
 
 	// Write .env
 	if err := writeEnv(clientID, clientSecret, issuer, sessionSecret); err != nil {
@@ -121,13 +131,13 @@ type clientMetadata struct {
 	Scope                   string   `json:"scope"`
 }
 
-// RFC 7591 registration response.
 type clientRegistrationResponse struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
+	Scope        string `json:"scope"`
 }
 
-func registerClient(token, endpoint, appName string) (string, string, error) {
+func registerClient(token, endpoint, appName string) (string, string, string, error) {
 	fmt.Printf("==> Registering client '%s' with %s...\n", appName, endpoint)
 
 	body, err := json.Marshal(clientMetadata{
@@ -139,43 +149,43 @@ func registerClient(token, endpoint, appName string) (string, string, error) {
 		GrantTypes:              []string{"authorization_code"},
 		ResponseTypes:           []string{"code"},
 		TokenEndpointAuthMethod: "client_secret_basic",
-		Scope:                   "openid email profile",
+		Scope:                   "openid email profile git",
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("marshal request: %w", err)
+		return "", "", "", fmt.Errorf("marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", "", fmt.Errorf("create request: %w", err)
+		return "", "", "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("POST register: %w", err)
+		return "", "", "", fmt.Errorf("POST register: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", "", fmt.Errorf("read response: %w", err)
+		return "", "", "", fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("register returned %d: %s", resp.StatusCode, respBody)
+		return "", "", "", fmt.Errorf("register returned %d: %s", resp.StatusCode, respBody)
 	}
 
 	var result clientRegistrationResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", "", fmt.Errorf("decode response: %w", err)
+		return "", "", "", fmt.Errorf("decode response: %w", err)
 	}
 	if result.ClientID == "" {
-		return "", "", fmt.Errorf("empty client_id in response: %s", respBody)
+		return "", "", "", fmt.Errorf("empty client_id in response: %s", respBody)
 	}
 
-	return result.ClientID, result.ClientSecret, nil
+	return result.ClientID, result.ClientSecret, result.Scope, nil
 }
 
 func writeEnv(clientID, clientSecret, issuer, sessionSecret string) error {
@@ -210,6 +220,88 @@ func writeEnv(clientID, clientSecret, issuer, sessionSecret string) error {
 	}
 
 	return nil
+}
+
+func setupGitProxy(issuer string) error {
+	fmt.Println("==> Setting up git proxy...")
+
+	caURL := issuer + "/gitproxy/ca.crt"
+	resp, err := http.Get(caURL)
+	if err != nil {
+		return fmt.Errorf("fetch ca: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		fmt.Println("    Git proxy not enabled on auth server, skipping")
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("fetch ca: status %d", resp.StatusCode)
+	}
+
+	caCert, _ := io.ReadAll(resp.Body)
+
+	configDir := filepath.Join(os.Getenv("HOME"), ".config", "gitproxy")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	caCertPath := filepath.Join(configDir, "ca.crt")
+	if err := os.WriteFile(caCertPath, caCert, 0644); err != nil {
+		return fmt.Errorf("write ca cert: %w", err)
+	}
+
+	// Combined CA bundle (system CAs + git proxy CA) for Go programs
+	systemCA, _ := os.ReadFile("/etc/ssl/certs/ca-certificates.crt")
+	combinedPath := filepath.Join(configDir, "combined-ca.crt")
+	if err := os.WriteFile(combinedPath, append(systemCA, caCert...), 0644); err != nil {
+		return fmt.Errorf("write combined ca: %w", err)
+	}
+
+	// Derive proxy address from issuer hostname
+	proxyHost := strings.TrimPrefix(issuer, "https://")
+	proxyHost = strings.TrimPrefix(proxyHost, "http://")
+	if idx := strings.Index(proxyHost, ":"); idx != -1 {
+		proxyHost = proxyHost[:idx]
+	}
+	proxyAddr := "http://" + proxyHost + ":8443"
+
+	// Configure git to use proxy for github.com
+	gitConfigs := [][2]string{
+		{"http.https://github.com/.proxy", proxyAddr},
+		{"http.https://github.com/.sslCAInfo", caCertPath},
+		{"http.https://api.github.com/.proxy", proxyAddr},
+		{"http.https://api.github.com/.sslCAInfo", caCertPath},
+	}
+	for _, cfg := range gitConfigs {
+		_ = shell("git", "config", "--global", cfg[0], cfg[1])
+	}
+
+	// Add proxy env vars to .bashrc
+	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport HTTPS_PROXY=%s\nexport SSL_CERT_FILE=%s\nexport GH_TOKEN=gitproxy\n",
+		proxyAddr, combinedPath)
+
+	bashrc := filepath.Join(os.Getenv("HOME"), ".bashrc")
+	if f, err := os.OpenFile(bashrc, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644); err == nil {
+		_, _ = f.WriteString(profileLines)
+		f.Close()
+	}
+
+	fmt.Printf("    CA cert:     %s\n", caCertPath)
+	fmt.Printf("    Proxy:       %s\n", proxyAddr)
+	fmt.Printf("    GH_TOKEN:    gitproxy (proxy injects real credentials)\n")
+
+	return nil
+}
+
+func hasScope(scopes, target string) bool {
+	for _, s := range strings.Fields(scopes) {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }
 
 func shell(name string, args ...string) error {
