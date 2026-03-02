@@ -38,13 +38,18 @@ func run() error {
 	endpoint := fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.Path)
 	issuer := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 
-	repo := "housecat-inc/go-template"
+	repoArg := "housecat-inc/go-template"
 	if len(os.Args) >= 3 {
-		repo = os.Args[2]
+		repoArg = os.Args[2]
+	}
+	repo, branch := repoArg, "main"
+	if at := strings.LastIndex(repoArg, "@"); at > 0 {
+		repo = repoArg[:at]
+		branch = repoArg[at+1:]
 	}
 	_, repoName, _ := strings.Cut(repo, "/")
 	if repoName == "" {
-		return fmt.Errorf("invalid repo %q: expected org/name", repo)
+		return fmt.Errorf("invalid repo %q: expected org/name[@branch]", repo)
 	}
 
 	hostname, err := os.Hostname()
@@ -76,7 +81,7 @@ func run() error {
 	}
 
 	// Clone and build the repo
-	if err := cloneAndBuild(repo, repoName); err != nil {
+	if err := cloneAndBuild(repo, repoName, branch); err != nil {
 		return fmt.Errorf("clone and build: %w", err)
 	}
 
@@ -93,30 +98,39 @@ func run() error {
 
 	fmt.Println("==> Done")
 	fmt.Printf("    App:       %s\n", appName)
-	fmt.Printf("    Repo:      %s\n", repo)
+	fmt.Printf("    Repo:      %s@%s\n", repo, branch)
 	fmt.Printf("    Client ID: %s\n", clientID)
 	_ = shell("systemctl", "status", "srv", "--no-pager")
 	return nil
 }
 
-func cloneAndBuild(repo, repoName string) error {
+func cloneAndBuild(repo, repoName, branch string) error {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, repoName)
 
 	if _, err := os.Stat(dir); err == nil {
-		fmt.Printf("==> %s already exists, pulling...\n", dir)
-		cmd := exec.Command("git", "pull", "origin", "main")
+		fmt.Printf("==> %s already exists, fetching...\n", dir)
+		cmd := exec.Command("git", "fetch", "origin")
 		cmd.Dir = dir
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("git pull: %w", err)
+			return fmt.Errorf("git fetch: %w", err)
 		}
 	} else {
 		fmt.Printf("==> Cloning %s...\n", repo)
-		if err := shell("git", "clone", "-b", "main", "https://github.com/"+repo+".git", dir); err != nil {
+		if err := shell("git", "clone", "https://github.com/"+repo+".git", dir); err != nil {
 			return fmt.Errorf("git clone: %w", err)
 		}
+	}
+
+	fmt.Printf("==> Checking out %s...\n", branch)
+	checkout := exec.Command("git", "checkout", branch)
+	checkout.Dir = dir
+	checkout.Stdout = os.Stdout
+	checkout.Stderr = os.Stderr
+	if err := checkout.Run(); err != nil {
+		return fmt.Errorf("git checkout %s: %w", branch, err)
 	}
 
 	return serviceSetup(dir)
