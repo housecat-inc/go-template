@@ -8,6 +8,7 @@ import (
 	"github.com/housecat-inc/auth/ui/components/badge"
 	"github.com/housecat-inc/auth/ui/components/button"
 	"github.com/housecat-inc/auth/ui/components/card"
+	"github.com/housecat-inc/auth/ui/components/dialog"
 	"github.com/housecat-inc/auth/ui/components/dropdown"
 	"github.com/housecat-inc/auth/ui/components/icon"
 	"github.com/housecat-inc/auth/ui/components/table"
@@ -44,11 +45,12 @@ templ AdminVMs(data AdminVMsData) {
 		LogoutURL: data.LogoutURL,
 	}) {
 		@dropdown.Script()
+		@dialog.Script()
 		<div class="space-y-8">
 			<div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
 				<div>
 					<h1 class="text-4xl font-bold tracking-tight">Virtual Machines</h1>
-					<p class="text-lg text-muted-foreground mt-1">exe.dev VMs</p>
+					<p class="text-lg text-muted-foreground mt-1">Agent Sandboxes</p>
 				</div>
 				if data.Configured {
 					<div class="flex gap-2">
@@ -218,16 +220,56 @@ templ adminVMItem(vm exedev.VM) {
 						@icon.EllipsisVertical(icon.Props{Size: 16})
 					}
 				}
-				@dropdown.Content() {
+				@dropdown.Content(dropdown.ContentProps{Attributes: templ.Attributes{"style": "width:12rem"}, Placement: dropdown.PlacementBottomEnd}) {
 					@dropdown.Item(dropdown.ItemProps{Href: vm.HTTPSURL, Target: "_blank"}) {
-						@icon.ExternalLink(icon.Props{Size: 14})
-						<span class="ml-2">Open App</span>
+						<span class="flex items-center gap-2">
+							@icon.ExternalLink(icon.Props{Size: 14, })
+							Open App
+						</span>
 					}
 					@dropdown.Item(dropdown.ItemProps{Href: vm.ShelleyURL, Target: "_blank"}) {
-						@icon.Bot(icon.Props{Size: 14})
-						<span class="ml-2">Open Agent</span>
+						<span class="flex items-center gap-2">
+							@icon.Bot(icon.Props{Size: 14, })
+							Open Agent
+						</span>
 					}
-
+					if vm.ShareStatus != "public" {
+						@dropdown.Separator()
+						@dialog.Trigger(dialog.TriggerProps{For: "delete-" + vm.Name}) {
+							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-variant": "destructive"}}) {
+							<span class="flex items-center gap-2">
+								@icon.Trash2(icon.Props{Size: 14, })
+								Delete
+							</span>
+						}
+						}
+					}
+				}
+				if vm.ShareStatus != "public" {
+					@dialog.Dialog(dialog.Props{ID: "delete-" + vm.Name}) {
+						@dialog.Content() {
+							@dialog.Header() {
+								@dialog.Title() {
+									Delete { vm.Name }?
+								}
+								@dialog.Description() {
+									This will permanently destroy the VM and all its data. This action cannot be undone.
+								}
+							}
+							@dialog.Footer() {
+								@dialog.Close() {
+									@button.Button(button.Props{Variant: button.VariantOutline}) {
+										Cancel
+									}
+								}
+								<form method="POST" action={ templ.SafeURL("/admin/vms/" + vm.Name + "/delete") }>
+									@button.Button(button.Props{Variant: button.VariantDestructive, Type: "submit"}) {
+										Delete
+									}
+								</form>
+							}
+						}
+					}
 				}
 			}
 		</div>

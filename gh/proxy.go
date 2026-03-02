@@ -67,6 +67,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if isGitReceivePack(path) {
 			refs, _ := ParseReceivePackRefs(body)
 			rejectGitPush(w, refs, errors.UnwrapAll(err).Error())
+		} else if isGitUploadPack(path) || isGitInfoRefs(path) {
+			rejectGitFetch(w, errors.UnwrapAll(err).Error())
 		} else {
 			http.Error(w, err.Error(), http.StatusForbidden)
 		}
@@ -211,6 +213,12 @@ func isGitInfoRefs(path string) bool {
 
 func isGitRequest(path string) bool {
 	return isGitReceivePack(path) || isGitUploadPack(path) || isGitInfoRefs(path)
+}
+
+func rejectGitFetch(w http.ResponseWriter, reason string) {
+	w.Header().Set("Content-Type", "application/x-git-upload-pack-advertisement")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write(UploadPackErr(reason))
 }
 
 func rejectGitPush(w http.ResponseWriter, refs []RefUpdate, reason string) {

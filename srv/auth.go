@@ -148,6 +148,7 @@ func (s *Server) RequireAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 
 func (s *Server) HandleAuthGoogle(c echo.Context) error {
 	r := c.Request()
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
 	state, err := randomHex(16)
 	if err != nil {
@@ -159,10 +160,22 @@ func (s *Server) HandleAuthGoogle(c echo.Context) error {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   600,
 	})
+
+	if redirect := c.QueryParam("redirect"); redirect != "" {
+		c.SetCookie(&http.Cookie{
+			Name:     "oauth_redirect",
+			Value:    redirect,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   600,
+		})
+	}
 
 	cfg := *s.oauth2Config
 	cfg.RedirectURL = s.callbackURL(r)
@@ -283,6 +296,7 @@ func (s *Server) HandleAuthExeDev(c echo.Context) error {
 func (s *Server) createSessionAndRedirect(c echo.Context, userID, email, provider string) error {
 	r := c.Request()
 	ctx := r.Context()
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
 	sessionID, err := randomHex(32)
 	if err != nil {
@@ -315,12 +329,28 @@ func (s *Server) createSessionAndRedirect(c echo.Context, userID, email, provide
 		Value:    s.signSessionID(sessionID),
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   30 * 24 * 60 * 60,
 	})
 
-	return c.Redirect(http.StatusFound, "/home")
+	redirectTo := "/home"
+	if cookie, err := r.Cookie("oauth_redirect"); err == nil && cookie.Value != "" {
+		redirectTo = cookie.Value
+		c.SetCookie(&http.Cookie{
+			Name:     "oauth_redirect",
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+	} else if redirect := c.QueryParam("redirect"); redirect != "" {
+		redirectTo = redirect
+	}
+
+	return c.Redirect(http.StatusFound, redirectTo)
 }
 
 func isLoopback(r *http.Request) bool {

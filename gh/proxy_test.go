@@ -415,6 +415,32 @@ func TestE2E_GitUsesBasicAuth(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// E2E: fetch disallowed repo → git ERR pkt-line with hint
+// ---------------------------------------------------------------------------
+
+func TestE2E_FetchDisallowedRepo(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		t.Fatal("should not reach upstream")
+	}))
+	defer upstream.Close()
+
+	_, ps := testProxy(t, upstream, nil)
+
+	resp, err := http.Get(ps.URL + "/github.com/evil-org/secret.git/info/refs?service=git-upload-pack")
+	r.NoError(err)
+	defer resp.Body.Close()
+
+	a.Equal(http.StatusForbidden, resp.StatusCode)
+	a.Equal("application/x-git-upload-pack-advertisement", resp.Header.Get("Content-Type"))
+	body, _ := io.ReadAll(resp.Body)
+	a.Contains(string(body), "evil-org/secret")
+	a.Contains(string(body), "GH_ALLOWED_REPOS")
+}
+
+// ---------------------------------------------------------------------------
 // E2E: bad credentials fall back to default policy
 // ---------------------------------------------------------------------------
 

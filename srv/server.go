@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"sync"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,6 +26,11 @@ import (
 	"github.com/housecat-inc/auth/ui/pages"
 )
 
+type vmSetup struct {
+	Done       bool
+	ShelleyURL string
+}
+
 type Server struct {
 	DB            *sql.DB
 	ExeDev        *exedev.Client
@@ -35,6 +42,7 @@ type Server struct {
 	oidcOP        op.OpenIDProvider
 	oidcStorage   *hcoidc.Storage
 	sessionSecret string
+	vmSetups      sync.Map
 }
 
 func New(dbPath, hostname string, oauthCfg OAuthConfig, exedevKeyPath string) (*Server, error) {
@@ -100,6 +108,9 @@ func (s *Server) Serve(addr string) error {
 	admin := e.Group("/admin", s.RequireAuth, s.RequireAdmin)
 	admin.GET("/vms", s.HandleAdminVMs)
 	admin.POST("/vms/new", s.HandleAdminNewVM)
+	admin.GET("/vms/:name/setup", s.HandleAdminVMSetup)
+	admin.GET("/vms/:name/setup/status", s.HandleAdminVMSetupStatus)
+	admin.POST("/vms/:name/delete", s.HandleAdminDeleteVM)
 	admin.POST("/browser-link", s.HandleAdminBrowserLink)
 
 	clients := admin.Group("/clients")
@@ -163,11 +174,21 @@ func (s *Server) HandleRoot(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/home")
 	}
 
+	redirect := c.QueryParam("redirect")
+
 	googleURL := ""
 	if s.oauth2Config != nil {
 		googleURL = "/auth/google"
+		if redirect != "" {
+			googleURL += "?redirect=" + url.QueryEscape(redirect)
+		}
 	}
-	component := auth.SignInPage("/auth/exedev", googleURL)
+
+	loginURL := "/auth/exedev"
+	if redirect != "" {
+		loginURL += "?redirect=" + url.QueryEscape(redirect)
+	}
+	component := auth.SignInPage(loginURL, googleURL)
 	return component.Render(r.Context(), c.Response())
 }
 

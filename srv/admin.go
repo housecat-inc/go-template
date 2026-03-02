@@ -148,9 +148,10 @@ func (s *Server) HandleAdminNewVM(c echo.Context) error {
 
 	q := dbgen.New(s.DB)
 
-	slog.Info("creating vm", "user", userEmail)
+	vmName := GenerateName()
+	slog.Info("creating vm", "name", vmName, "user", userEmail)
 
-	result, err := s.ExeDev.CreateVM(ctx)
+	result, err := s.ExeDev.CreateVM(ctx, vmName)
 	if err != nil {
 		return errors.Wrap(err, "create vm")
 	}
@@ -169,21 +170,131 @@ func (s *Server) HandleAdminNewVM(c echo.Context) error {
 	issue := s.issuerURL(r)
 	prompt := buildVMPrompt(issue, token)
 
+	s.vmSetups.Store(result.Name, &vmSetup{ShelleyURL: result.ShelleyURL})
+
 	go func() {
-		for attempt := 0; attempt < 30; attempt++ {
-			time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+		for attempt := range 60 {
+			time.Sleep(5 * time.Second)
 			res, err := s.ExeDev.SendPrompt(context.Background(), result.Name, prompt, "claude-sonnet-4.5")
 			if err != nil {
 				slog.Warn("send prompt retry", "vm", result.Name, "attempt", attempt+1, "error", err)
 				continue
 			}
 			slog.Info("prompt sent", "vm", result.Name, "conversation", res.ConversationID)
+			if v, ok := s.vmSetups.Load(result.Name); ok {
+				v.(*vmSetup).Done = true
+			}
 			return
 		}
 		slog.Error("send prompt failed after retries", "vm", result.Name)
+		if v, ok := s.vmSetups.Load(result.Name); ok {
+			v.(*vmSetup).Done = true
+		}
 	}()
 
-	return c.Redirect(http.StatusFound, result.ShelleyURL)
+	return c.Redirect(http.StatusFound, "/admin/vms/"+result.Name+"/setup")
+}
+
+func (s *Server) HandleAdminVMSetup(c echo.Context) error {
+	name := c.Param("name")
+	v, ok := s.vmSetups.Load(name)
+	if !ok {
+		return c.Redirect(http.StatusFound, "/admin/vms")
+	}
+	setup := v.(*vmSetup)
+	if setup.Done {
+		s.vmSetups.Delete(name)
+		return c.Redirect(http.StatusFound, setup.ShelleyURL)
+	}
+	return c.HTML(http.StatusOK, vmSetupPage(name))
+}
+
+func (s *Server) HandleAdminVMSetupStatus(c echo.Context) error {
+	name := c.Param("name")
+	v, ok := s.vmSetups.Load(name)
+	if !ok {
+		return c.JSON(http.StatusOK, map[string]any{"done": true, "redirect": "/admin/vms"})
+	}
+	setup := v.(*vmSetup)
+	if setup.Done {
+		s.vmSetups.Delete(name)
+		return c.JSON(http.StatusOK, map[string]any{"done": true, "redirect": setup.ShelleyURL})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"done": false})
+}
+
+func vmSetupPage(name string) string {
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Setting up ` + name + `</title>
+	<link rel="stylesheet" href="/assets/css/output.css">
+</head>
+<body class="bg-background text-foreground min-h-screen flex items-center justify-center">
+	<div class="text-center space-y-4">
+		<div class="text-6xl">🐱</div>
+		<h1 class="text-2xl font-bold">Setting up ` + name + `</h1>
+		<p class="text-muted-foreground">Waiting for the agent to start&hellip;</p>
+		<div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-current border-r-transparent"></div>
+	</div>
+	<script>
+		(function poll() {
+			fetch("/admin/vms/` + name + `/setup/status")
+				.then(r => r.json())
+				.then(data => {
+					if (data.done) {
+						window.location.href = data.redirect;
+					} else {
+						setTimeout(poll, 2000);
+					}
+				})
+				.catch(() => setTimeout(poll, 2000));
+		})();
+	</script>
+</body>
+</html>`
+}
+
+func (s *Server) HandleAdminDeleteVM(c echo.Context) error {
+	ctx := c.Request().Context()
+	userID := c.Get("userID").(string)
+	userEmail := c.Get("userEmail").(string)
+	vmName := c.Param("name")
+
+	if s.ExeDev == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "exe.dev client not configured")
+	}
+
+	if vmName == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "vm name required")
+	}
+
+	info, err := s.ExeDev.ShareShow(ctx, vmName)
+	if err == nil && info.Status == "public" {
+		return echo.NewHTTPError(http.StatusForbidden, "cannot delete a public VM")
+	}
+
+	slog.Info("deleting vm", "name", vmName, "user", userEmail)
+
+	if err := s.ExeDev.DeleteVM(ctx, vmName); err != nil {
+		return errors.Wrap(err, "delete vm")
+	}
+
+	if s.DB != nil {
+		q := dbgen.New(s.DB)
+		_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
+			ActorID:    userID,
+			ActorType:  "user",
+			Action:     "deleted_vm",
+			ObjectID:   vmName,
+			ObjectType: "vm",
+			Metadata:   &userEmail,
+		})
+	}
+
+	return c.Redirect(http.StatusFound, "/admin/vms")
 }
 
 func buildVMPrompt(issuerURL, token string) string {

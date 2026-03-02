@@ -66,7 +66,7 @@ func (c *Client) PostLogoutRedirectURIs() []string          { return splitComma(
 func (c *Client) LoginURL(id string) string                 { return c.loginURL + "?authRequestID=" + id }
 func (c *Client) IDTokenLifetime() time.Duration            { return 1 * time.Hour }
 func (c *Client) DevMode() bool                             { return false }
-func (c *Client) IDTokenUserinfoClaimsAssertion() bool      { return false }
+func (c *Client) IDTokenUserinfoClaimsAssertion() bool      { return true }
 func (c *Client) ClockSkew() time.Duration                  { return 0 }
 func (c *Client) IsScopeAllowed(scope string) bool {
 	if scope == "" {

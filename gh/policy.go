@@ -73,12 +73,12 @@ func (p *Policy) checkRepo(repo string) error {
 			return nil
 		}
 	}
-	return errors.Newf("repo %q not allowed", repo)
+	return errors.Newf("repo %q is not in the proxy's allowed repos list; add it to GH_ALLOWED_REPOS", repo)
 }
 
 func (p *Policy) checkRef(refName string) error {
 	if len(p.BranchPrefixes) == 0 {
-		return nil
+		return errors.New("no branch prefix configured; set a branch prefix for this VM")
 	}
 
 	branch := strings.TrimPrefix(refName, "refs/heads/")

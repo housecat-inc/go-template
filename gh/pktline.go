@@ -72,12 +72,40 @@ func pktLine(s string) []byte {
 	return []byte(fmt.Sprintf("%04x%s", n, s))
 }
 
-func ReceivePackReject(refs []RefUpdate, reason string) []byte {
+func UploadPackErr(reason string) []byte {
 	var buf []byte
-	buf = append(buf, pktLine("unpack ok\n")...)
+	buf = append(buf, pktLine("ERR "+reason+"\n")...)
+	return buf
+}
+
+func ReceivePackReject(refs []RefUpdate, reason string) []byte {
+	var payload []byte
+	payload = append(payload, pktLine("unpack ok\n")...)
 	for _, ref := range refs {
-		buf = append(buf, pktLine(fmt.Sprintf("ng %s %s\n", ref.RefName, reason))...)
+		payload = append(payload, pktLine(fmt.Sprintf("ng %s %s\n", ref.RefName, reason))...)
 	}
+	payload = append(payload, "0000"...)
+
+	var buf []byte
+	buf = append(buf, sidebandPkt(1, payload)...)
+	buf = append(buf, sidebandPkt(2, []byte("error: "+reason+"\n"))...)
 	buf = append(buf, "0000"...)
+	return buf
+}
+
+func sidebandPkt(band byte, data []byte) []byte {
+	const maxChunk = 65515
+	var buf []byte
+	for len(data) > 0 {
+		chunk := data
+		if len(chunk) > maxChunk {
+			chunk = chunk[:maxChunk]
+		}
+		data = data[len(chunk):]
+		n := len(chunk) + 5
+		buf = append(buf, []byte(fmt.Sprintf("%04x", n))...)
+		buf = append(buf, band)
+		buf = append(buf, chunk...)
+	}
 	return buf
 }

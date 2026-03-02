@@ -31,6 +31,7 @@ templ ClientsList(data ClientsListData) {
 		LogoutURL: data.LogoutURL,
 	}) {
 		@dropdown.Script()
+		@dialog.Script()
 		<div class="space-y-8">
 			<div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
 				<div>
@@ -177,23 +178,51 @@ templ clientsListItem(client dbgen.OidcClient) {
 						@icon.EllipsisVertical(icon.Props{Size: 16})
 					}
 				}
-				@dropdown.Content() {
+				@dropdown.Content(dropdown.ContentProps{Attributes: templ.Attributes{"style": "width:12rem"}, Placement: dropdown.PlacementBottomEnd}) {
 					@dropdown.Item(dropdown.ItemProps{Href: fmt.Sprintf("/admin/clients/%d", client.ID)}) {
-						@icon.Eye(icon.Props{Size: 14})
-						<span class="ml-2">View</span>
+						<span class="flex items-center gap-2">
+							@icon.Eye(icon.Props{Size: 14, })
+							View
+						</span>
 					}
 					@dropdown.Item(dropdown.ItemProps{Href: fmt.Sprintf("/admin/clients/%d/edit", client.ID)}) {
-						@icon.Pencil(icon.Props{Size: 14})
-						<span class="ml-2">Edit</span>
+						<span class="flex items-center gap-2">
+							@icon.Pencil(icon.Props{Size: 14, })
+							Edit
+						</span>
 					}
 					@dropdown.Separator()
-					@dropdown.Item(dropdown.ItemProps{Class: "text-destructive"}) {
-						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/admin/clients/%d/archive", client.ID)) }>
-							<button type="submit" class="flex items-center w-full">
-								@icon.Trash(icon.Props{Size: 14})
-								<span class="ml-2">Archive</span>
-							</button>
-						</form>
+					@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("archive-%d", client.ID)}) {
+						@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-variant": "destructive"}}) {
+							<span class="flex items-center gap-2">
+								@icon.Trash(icon.Props{Size: 14, })
+								Archive
+							</span>
+						}
+					}
+				}
+				@dialog.Dialog(dialog.Props{ID: fmt.Sprintf("archive-%d", client.ID)}) {
+					@dialog.Content() {
+						@dialog.Header() {
+							@dialog.Title() {
+								Archive { client.Name }?
+							}
+							@dialog.Description() {
+								This will archive the OIDC client. VMs using this client will no longer be able to authenticate.
+							}
+						}
+						@dialog.Footer() {
+							@dialog.Close() {
+								@button.Button(button.Props{Variant: button.VariantOutline}) {
+									Cancel
+								}
+							}
+							<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/admin/clients/%d/archive", client.ID)) }>
+								@button.Button(button.Props{Variant: button.VariantDestructive, Type: "submit"}) {
+									Archive
+								}
+							</form>
+						}
 					}
 				}
 			}

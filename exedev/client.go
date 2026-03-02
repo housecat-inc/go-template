@@ -144,8 +144,12 @@ type CreateVMResult struct {
 	ShelleyURL string `json:"shelley_url"`
 }
 
-func (c *Client) CreateVM(ctx context.Context) (CreateVMResult, error) {
-	out, err := c.ExecWithPerm(ctx, "new --json --no-email", "new")
+func (c *Client) CreateVM(ctx context.Context, name string) (CreateVMResult, error) {
+	cmd := "new --json --no-email"
+	if name != "" {
+		cmd += " --name " + name
+	}
+	out, err := c.ExecWithPerm(ctx, cmd, "new")
 	if err != nil {
 		return CreateVMResult{}, errors.Wrap(err, "create vm")
 	}
@@ -155,6 +159,11 @@ func (c *Client) CreateVM(ctx context.Context) (CreateVMResult, error) {
 		return CreateVMResult{}, errors.Wrap(err, "parse create vm json")
 	}
 	return result, nil
+}
+
+func (c *Client) DeleteVM(ctx context.Context, name string) error {
+	_, err := c.ExecWithPerm(ctx, "rm "+name, "rm")
+	return err
 }
 
 type SendPromptResult struct {
