@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -22,9 +23,19 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: app-setup <token>")
+		return fmt.Errorf("usage: app-setup <url>\n  e.g. app-setup https://hcset_abc123@hc-auth-dev.exe.xyz/admin/apps/setup")
 	}
-	token := os.Args[1]
+
+	u, err := url.Parse(os.Args[1])
+	if err != nil {
+		return fmt.Errorf("parse url: %w", err)
+	}
+	token := u.User.Username()
+	if token == "" {
+		return fmt.Errorf("token missing from URL userinfo")
+	}
+	endpoint := fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.Path)
+	issuer := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -38,7 +49,7 @@ func run() error {
 	}
 
 	// App registration
-	clientID, clientSecret, err := registerApp(token, appName)
+	clientID, clientSecret, err := registerApp(token, endpoint, appName)
 	if err != nil {
 		return fmt.Errorf("register app: %w", err)
 	}
@@ -51,7 +62,7 @@ func run() error {
 	sessionSecret := hex.EncodeToString(secretBytes)
 
 	// Write .env
-	if err := writeEnv(clientID, clientSecret, sessionSecret); err != nil {
+	if err := writeEnv(clientID, clientSecret, issuer, sessionSecret); err != nil {
 		return fmt.Errorf("write env: %w", err)
 	}
 
@@ -112,8 +123,8 @@ type setupResponse struct {
 	ClientSecret string `json:"client_secret"`
 }
 
-func registerApp(token, appName string) (string, string, error) {
-	fmt.Printf("==> Registering app '%s' with Housecat Auth...\n", appName)
+func registerApp(token, endpoint, appName string) (string, string, error) {
+	fmt.Printf("==> Registering app '%s' with %s...\n", appName, endpoint)
 
 	body, err := json.Marshal(setupRequest{
 		CallbackURLs: []string{
@@ -128,7 +139,7 @@ func registerApp(token, appName string) (string, string, error) {
 		return "", "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	resp, err := http.Post("https://hc-auth-dev.exe.xyz/admin/apps/setup", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(endpoint, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", "", fmt.Errorf("POST setup: %w", err)
 	}
@@ -154,11 +165,11 @@ func registerApp(token, appName string) (string, string, error) {
 	return result.ClientID, result.ClientSecret, nil
 }
 
-func writeEnv(clientID, clientSecret, sessionSecret string) error {
+func writeEnv(clientID, clientSecret, issuer, sessionSecret string) error {
 	fmt.Println("==> Writing /opt/srv/data/.env...")
 
-	content := fmt.Sprintf("HOUSECAT_CLIENT_ID=%s\nHOUSECAT_CLIENT_SECRET=%s\nOAUTH_ISSUER=https://hc-auth-dev.exe.xyz\nSESSION_SECRET=%s\n",
-		clientID, clientSecret, sessionSecret)
+	content := fmt.Sprintf("HOUSECAT_CLIENT_ID=%s\nHOUSECAT_CLIENT_SECRET=%s\nOAUTH_ISSUER=%s\nSESSION_SECRET=%s\n",
+		clientID, clientSecret, issuer, sessionSecret)
 
 	f, err := os.CreateTemp("", "env-*")
 	if err != nil {
