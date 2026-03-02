@@ -320,6 +320,16 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	lines := strings.Count(strings.TrimSpace(string(out)), "\n") + 1
 	fmt.Printf("    git ls-remote: OK (%d refs)\n", lines)
 
+	ghWrapper := filepath.Join(gobin, "gh")
+	fmt.Println("==> Smoke testing gh wrapper...")
+	ghCmd := exec.Command(ghWrapper, "auth", "status")
+	ghCmd.Env = append(os.Environ(), "GH_PROXY_URL="+ghProxyURL, "PATH="+gobin+":"+os.Getenv("PATH"))
+	ghCmd.Stdout = os.Stdout
+	ghCmd.Stderr = os.Stderr
+	if err := ghCmd.Run(); err != nil {
+		return fmt.Errorf("gh auth status failed: %w", err)
+	}
+
 	return nil
 }
 
