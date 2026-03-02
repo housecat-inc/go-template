@@ -26,12 +26,17 @@ func main() {
 }
 
 func run() error {
+	realGH, err := findRealGH()
+	if err != nil {
+		return err
+	}
+
 	token, err := getToken()
 	if err != nil {
 		return err
 	}
 
-	login := exec.Command("gh", "auth", "login", "--with-token")
+	login := exec.Command(realGH, "auth", "login", "--with-token")
 	login.Stdin = strings.NewReader(token)
 	login.Stderr = io.Discard
 	if err := login.Run(); err != nil {
@@ -39,7 +44,7 @@ func run() error {
 	}
 
 	if len(os.Args) > 1 {
-		gh := exec.Command("gh", os.Args[1:]...)
+		gh := exec.Command(realGH, os.Args[1:]...)
 		gh.Stdin = os.Stdin
 		gh.Stdout = os.Stdout
 		gh.Stderr = os.Stderr
@@ -52,6 +57,26 @@ func run() error {
 	}
 
 	return nil
+}
+
+func findRealGH() (string, error) {
+	self, _ := os.Executable()
+	self, _ = filepath.EvalSymlinks(self)
+
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		candidate := filepath.Join(dir, "gh")
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			continue
+		}
+		if resolved == self {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("could not find real gh binary in PATH")
 }
 
 func getToken() (string, error) {
