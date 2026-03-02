@@ -270,9 +270,9 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 
 	// Configure git to use proxy for github.com
 	gitConfigs := [][2]string{
-		{"http.https://github.com/.proxy", proxyAddrClean},
+		{"http.https://github.com/.proxy", proxyAddr},
 		{"http.https://github.com/.sslCAInfo", caCertPath},
-		{"http.https://api.github.com/.proxy", proxyAddrClean},
+		{"http.https://api.github.com/.proxy", proxyAddr},
 		{"http.https://api.github.com/.sslCAInfo", caCertPath},
 	}
 	for _, cfg := range gitConfigs {
