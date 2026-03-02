@@ -82,3 +82,4 @@ This template uses templ and templui. Run `go tool templ generate` to generate t
 - `db`: SQLite open + migrations (0001_activities.sql)
 - `srv`: HTTP server logic (handlers)
 - `ui`: templ UI components
+# Test PR from gh-app tool
