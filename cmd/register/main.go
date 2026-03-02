@@ -297,8 +297,8 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	ghProxyURL := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost
 	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport GH_PROXY_URL=%s\n", ghProxyURL)
 
-	bashrc := filepath.Join(os.Getenv("HOME"), ".bashrc")
-	if f, err := os.OpenFile(bashrc, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644); err == nil {
+	profile := filepath.Join(os.Getenv("HOME"), ".profile")
+	if f, err := os.OpenFile(profile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644); err == nil {
 		_, _ = f.WriteString(profileLines)
 		f.Close()
 	}
