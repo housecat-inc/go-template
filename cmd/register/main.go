@@ -64,7 +64,7 @@ func run() error {
 
 	// Set up git proxy if git scope was granted
 	if hasScope(scope, "git") {
-		if err := setupGitProxy(issuer); err != nil {
+		if err := setupGitProxy(issuer, clientID, clientSecret); err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: git proxy setup: %v\n", err)
 		}
 	} else {
@@ -222,7 +222,7 @@ func writeEnv(clientID, clientSecret, issuer, sessionSecret string) error {
 	return nil
 }
 
-func setupGitProxy(issuer string) error {
+func setupGitProxy(issuer, clientID, clientSecret string) error {
 	fmt.Println("==> Setting up git proxy...")
 
 	caURL := issuer + "/gitproxy/ca.crt"
@@ -265,13 +265,14 @@ func setupGitProxy(issuer string) error {
 	if idx := strings.Index(proxyHost, ":"); idx != -1 {
 		proxyHost = proxyHost[:idx]
 	}
-	proxyAddr := "http://" + proxyHost + ":8443"
+	proxyAddr := "http://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost + ":8443"
+	proxyAddrClean := "http://" + proxyHost + ":8443"
 
 	// Configure git to use proxy for github.com
 	gitConfigs := [][2]string{
-		{"http.https://github.com/.proxy", proxyAddr},
+		{"http.https://github.com/.proxy", proxyAddrClean},
 		{"http.https://github.com/.sslCAInfo", caCertPath},
-		{"http.https://api.github.com/.proxy", proxyAddr},
+		{"http.https://api.github.com/.proxy", proxyAddrClean},
 		{"http.https://api.github.com/.sslCAInfo", caCertPath},
 	}
 	for _, cfg := range gitConfigs {
@@ -282,6 +283,12 @@ func setupGitProxy(issuer string) error {
 	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport HTTPS_PROXY=%s\nexport SSL_CERT_FILE=%s\nexport GH_TOKEN=gitproxy\n",
 		proxyAddr, combinedPath)
 
+	// Also write credentials to a file for git config
+	proxyAuthPath := filepath.Join(configDir, "proxy-auth")
+	if err := os.WriteFile(proxyAuthPath, []byte(proxyAddr), 0600); err != nil {
+		return fmt.Errorf("write proxy auth: %w", err)
+	}
+
 	bashrc := filepath.Join(os.Getenv("HOME"), ".bashrc")
 	if f, err := os.OpenFile(bashrc, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644); err == nil {
 		_, _ = f.WriteString(profileLines)
@@ -289,7 +296,7 @@ func setupGitProxy(issuer string) error {
 	}
 
 	fmt.Printf("    CA cert:     %s\n", caCertPath)
-	fmt.Printf("    Proxy:       %s\n", proxyAddr)
+	fmt.Printf("    Proxy:       %s\n", proxyAddrClean)
 	fmt.Printf("    GH_TOKEN:    gitproxy (proxy injects real credentials)\n")
 
 	return nil
