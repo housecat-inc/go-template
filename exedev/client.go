@@ -1,6 +1,7 @@
 package exedev
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -135,4 +136,72 @@ func (c *Client) BrowserLink(ctx context.Context) (string, error) {
 		return "", errors.Wrap(err, "parse browser json")
 	}
 	return resp.MagicLink, nil
+}
+
+type CreateVMResult struct {
+	HTTPSURL   string `json:"https_url"`
+	Name       string `json:"vm_name"`
+	ShelleyURL string `json:"shelley_url"`
+}
+
+func (c *Client) CreateVM(ctx context.Context) (CreateVMResult, error) {
+	out, err := c.ExecWithPerm(ctx, "new --json --no-email", "new")
+	if err != nil {
+		return CreateVMResult{}, errors.Wrap(err, "create vm")
+	}
+
+	var result CreateVMResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		return CreateVMResult{}, errors.Wrap(err, "parse create vm json")
+	}
+	return result, nil
+}
+
+type SendPromptResult struct {
+	ConversationID string `json:"conversation_id"`
+	Status         string `json:"status"`
+}
+
+func (c *Client) SendPrompt(ctx context.Context, vmName, message, model string) (SendPromptResult, error) {
+	token, err := SignVMToken(c.Signer, vmName, 5*time.Minute)
+	if err != nil {
+		return SendPromptResult{}, errors.Wrap(err, "sign vm token")
+	}
+
+	payload := map[string]string{"message": message}
+	if model != "" {
+		payload["model"] = model
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return SendPromptResult{}, errors.Wrap(err, "marshal prompt")
+	}
+
+	url := "https://" + vmName + ".shelley.exe.xyz/api/conversations/new"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return SendPromptResult{}, errors.Wrap(err, "create request")
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return SendPromptResult{}, errors.Wrap(err, "send prompt request")
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return SendPromptResult{}, errors.Wrap(err, "read response")
+	}
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return SendPromptResult{}, errors.Newf("send prompt failed: %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result SendPromptResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return SendPromptResult{}, errors.Wrap(err, "parse prompt response")
+	}
+	return result, nil
 }

@@ -21,6 +21,70 @@ type Activity struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type OidcAccessToken struct {
+	ID            string    `json:"id"`
+	ApplicationID string    `json:"application_id"`
+	Subject       string    `json:"subject"`
+	Audience      string    `json:"audience"`
+	Scopes        string    `json:"scopes"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type OidcAuthRequest struct {
+	ID                  string     `json:"id"`
+	ClientID            string     `json:"client_id"`
+	RedirectUri         string     `json:"redirect_uri"`
+	Scopes              string     `json:"scopes"`
+	State               string     `json:"state"`
+	Nonce               string     `json:"nonce"`
+	ResponseType        string     `json:"response_type"`
+	CodeChallenge       string     `json:"code_challenge"`
+	CodeChallengeMethod string     `json:"code_challenge_method"`
+	UserID              string     `json:"user_id"`
+	UserEmail           string     `json:"user_email"`
+	AuthTime            *time.Time `json:"auth_time"`
+	Done                int64      `json:"done"`
+	CreatedAt           time.Time  `json:"created_at"`
+}
+
+type OidcClient struct {
+	ID                     int64      `json:"id"`
+	ClientID               string     `json:"client_id"`
+	ClientSecret           string     `json:"client_secret"`
+	Name                   string     `json:"name"`
+	RedirectUris           string     `json:"redirect_uris"`
+	PostLogoutRedirectUris string     `json:"post_logout_redirect_uris"`
+	ApplicationType        string     `json:"application_type"`
+	AuthMethod             string     `json:"auth_method"`
+	ResponseTypes          string     `json:"response_types"`
+	GrantTypes             string     `json:"grant_types"`
+	AccessTokenType        string     `json:"access_token_type"`
+	Scopes                 string     `json:"scopes"`
+	CreatedBy              string     `json:"created_by"`
+	ArchivedAt             *time.Time `json:"archived_at"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
+}
+
+type OidcCode struct {
+	Code          string    `json:"code"`
+	AuthRequestID string    `json:"auth_request_id"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type OidcRefreshToken struct {
+	ID            string    `json:"id"`
+	Token         string    `json:"token"`
+	AuthTime      time.Time `json:"auth_time"`
+	Audience      string    `json:"audience"`
+	UserID        string    `json:"user_id"`
+	ApplicationID string    `json:"application_id"`
+	Scopes        string    `json:"scopes"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 type Session struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"user_id"`

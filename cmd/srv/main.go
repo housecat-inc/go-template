@@ -27,9 +27,14 @@ func main() {
 
 func run() error {
 	flag.Parse()
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "unknown"
+	hostname := os.Getenv("HOSTNAME")
+	if hostname == "" {
+		h, err := os.Hostname()
+		if err != nil {
+			hostname = "localhost:8000"
+		} else {
+			hostname = h + ".exe.xyz"
+		}
 	}
 	oauthCfg := srv.OAuthConfig{
 		ClientID:      os.Getenv("GOOGLE_CLIENT_ID"),

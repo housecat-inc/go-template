@@ -5,18 +5,21 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/coreos/go-oidc/v3/oidc"
+	googleoidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/labstack/echo/v4"
+	"github.com/zitadel/oidc/v3/pkg/op"
 	"golang.org/x/oauth2"
 
 	"github.com/housecat-inc/auth/assets"
 	"github.com/housecat-inc/auth/db"
 	"github.com/housecat-inc/auth/db/dbgen"
 	"github.com/housecat-inc/auth/exedev"
+	hcoidc "github.com/housecat-inc/auth/oidc"
 	"github.com/housecat-inc/auth/ui/blocks/auth"
 	"github.com/housecat-inc/auth/ui/pages"
 )
@@ -27,7 +30,9 @@ type Server struct {
 	Hostname      string
 	OAuth         OAuthConfig
 	oauth2Config  *oauth2.Config
-	oidcProvider  *oidc.Provider
+	googleOIDC    *googleoidc.Provider
+	oidcOP        op.OpenIDProvider
+	oidcStorage   *hcoidc.Storage
 	sessionSecret string
 }
 
@@ -40,9 +45,12 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig, exedevKeyPath string) (*
 	if err := srv.setUpDatabase(dbPath); err != nil {
 		return nil, err
 	}
+	if err := srv.setUpOIDCProvider(dbPath); err != nil {
+		return nil, err
+	}
 	if oauthCfg.ClientID != "" {
-		if err := srv.setUpOIDC(context.Background()); err != nil {
-			return nil, errors.Wrap(err, "setup oidc")
+		if err := srv.setUpGoogleOIDC(context.Background()); err != nil {
+			return nil, errors.Wrap(err, "setup google oidc")
 		}
 	}
 	if exedevKeyPath != "" {
@@ -54,6 +62,24 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig, exedevKeyPath string) (*
 		}
 	}
 	return srv, nil
+}
+
+func (s *Server) setUpOIDCProvider(dbPath string) error {
+	issuer := "https://" + s.Hostname
+	if strings.HasPrefix(s.Hostname, "localhost") {
+		issuer = "http://" + s.Hostname
+	}
+
+	keyPath := filepath.Join(filepath.Dir(dbPath), "oidc_signing.key")
+	provider, storage, err := hcoidc.NewProvider(issuer, s.DB, keyPath, s.sessionSecret)
+	if err != nil {
+		return errors.Wrap(err, "setup oidc provider")
+	}
+	s.oidcOP = provider
+	s.oidcStorage = storage
+
+	slog.Info("oidc provider initialized", "issuer", issuer)
+	return nil
 }
 
 func (s *Server) Serve(addr string) error {
@@ -72,7 +98,43 @@ func (s *Server) Serve(addr string) error {
 
 	admin := e.Group("/admin", s.RequireAuth, s.RequireAdmin)
 	admin.GET("/vms", s.HandleAdminVMs)
+	admin.POST("/vms/new", s.HandleAdminNewVM)
 	admin.POST("/browser-link", s.HandleAdminBrowserLink)
+
+	clients := admin.Group("/clients")
+	clients.GET("", s.HandleClients)
+	clients.GET("/new", s.HandleClientsNew)
+	clients.POST("", s.HandleClientsCreate)
+	clients.POST("/registration-token", s.HandleRegistrationToken)
+	clients.GET("/:id", s.HandleClientsView)
+	clients.GET("/:id/edit", s.HandleClientsEdit)
+	clients.POST("/:id", s.HandleClientsUpdate)
+	clients.POST("/:id/archive", s.HandleClientsArchive)
+
+	e.POST("/register", s.HandleRegister)
+
+	// OIDC login callback (the OP redirects here for user authentication)
+	e.GET("/oidc/login", hcoidc.LoginHandler(s.oidcStorage, s.oidcOP, func(r *http.Request) (string, string, error) {
+		sess, err := s.getSession(r)
+		if err != nil {
+			return "", "", err
+		}
+		return sess.UserID, sess.Email, nil
+	}))
+
+	// Mount the zitadel OIDC provider handler for all OIDC endpoints
+	oidcHandler := s.oidcOP
+	e.Any("/.well-known/*", echo.WrapHandler(oidcHandler))
+	e.Any("/authorize", echo.WrapHandler(oidcHandler))
+	e.Any("/authorize/*", echo.WrapHandler(oidcHandler))
+	e.Any("/oauth/*", echo.WrapHandler(oidcHandler))
+	e.Any("/userinfo", echo.WrapHandler(oidcHandler))
+	e.Any("/keys", echo.WrapHandler(oidcHandler))
+	e.Any("/end_session", echo.WrapHandler(oidcHandler))
+	e.Any("/revoke", echo.WrapHandler(oidcHandler))
+	e.Any("/healthz", echo.WrapHandler(oidcHandler))
+	e.Any("/ready", echo.WrapHandler(oidcHandler))
+	e.Any("/device_authorization", echo.WrapHandler(oidcHandler))
 
 	assetHandler := http.FileServer(http.FS(assets.FS))
 	e.GET("/assets/*", echo.WrapHandler(http.StripPrefix("/assets", assetHandler)))
@@ -84,8 +146,7 @@ func (s *Server) Serve(addr string) error {
 func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
 
-	// On localhost, skip sign-in — RequireAuth on /home will auto-authenticate
-	if strings.HasPrefix(r.Host, "localhost") {
+	if isLoopback(r) {
 		return c.Redirect(http.StatusFound, "/home")
 	}
 
@@ -168,7 +229,7 @@ func (s *Server) HandleHome(c echo.Context) error {
 		UserID:        userID,
 	}
 
-	component := pages.Home(data, isAdmin(userEmail))
+	component := pages.Home(data, isAdminWithProvider(userEmail, provider))
 	return component.Render(ctx, c.Response())
 }
 
@@ -185,6 +246,34 @@ func (s *Server) setUpDatabase(dbPath string) error {
 }
 
 
+
+func (s *Server) issuerURL(r *http.Request) string {
+	scheme := "https"
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		if idx := strings.IndexByte(proto, ','); idx != -1 {
+			proto = proto[:idx]
+		}
+		proto = strings.TrimSpace(proto)
+		if proto == "http" || proto == "https" {
+			scheme = proto
+		}
+	} else if r.TLS == nil && strings.HasPrefix(r.Host, "localhost") {
+		scheme = "http"
+	}
+
+	host := r.Host
+	if xfHost := r.Header.Get("X-Forwarded-Host"); xfHost != "" {
+		if idx := strings.IndexByte(xfHost, ','); idx != -1 {
+			xfHost = xfHost[:idx]
+		}
+		xfHost = strings.TrimSpace(xfHost)
+		if xfHost != "" {
+			host = xfHost
+		}
+	}
+
+	return scheme + "://" + host
+}
 
 func mainDomainFromHost(host string) string {
 	portSuffix := ""

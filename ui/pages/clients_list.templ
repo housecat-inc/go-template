@@ -1,0 +1,238 @@
+package pages
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/housecat-inc/auth/db/dbgen"
+	"github.com/housecat-inc/auth/ui/components/badge"
+	"github.com/housecat-inc/auth/ui/components/button"
+	"github.com/housecat-inc/auth/ui/components/card"
+	"github.com/housecat-inc/auth/ui/components/dialog"
+	"github.com/housecat-inc/auth/ui/components/dropdown"
+	"github.com/housecat-inc/auth/ui/components/icon"
+	"github.com/housecat-inc/auth/ui/layouts"
+)
+
+type ClientsListData struct {
+	ClientCount  int64
+	Clients      []dbgen.OidcClient
+	Hostname  string
+	LogoutURL string
+	UserEmail string
+}
+
+templ ClientsList(data ClientsListData) {
+	@layouts.Layout(layouts.NavData{
+		IsAdmin:   true,
+		Title:     "Housecat Auth",
+		UserEmail: data.UserEmail,
+		LogoutURL: data.LogoutURL,
+	}) {
+		@dropdown.Script()
+		<div class="space-y-8">
+			<div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+				<div>
+					<h1 class="text-4xl font-bold tracking-tight">Clients</h1>
+					<p class="text-lg text-muted-foreground mt-1">Register and manage clients</p>
+				</div>
+				<div class="flex gap-2">
+					@dialog.Dialog(dialog.Props{ID: "setup-vm-dialog"}) {
+						@dialog.Trigger() {
+							@button.Button(button.Props{
+								Variant: button.VariantOutline,
+								Class:   "w-full md:w-auto",
+								Attributes: templ.Attributes{"onclick": "generateSetupToken(event)"},
+							}) {
+								@icon.Monitor(icon.Props{Size: 16})
+								<span class="ml-2">VM Instructions</span>
+							}
+						}
+						@dialog.Content(dialog.ContentProps{Class: "max-w-2xl"}) {
+							@dialog.Header() {
+								@dialog.Title() {
+									VM Instructions
+								}
+								@dialog.Description() {
+									Copy the instructions below to set up Housecat Auth on a new VM.
+								}
+							}
+							<div id="setup-vm-content" class="mt-4">
+								<div class="flex items-center justify-center py-8 text-muted-foreground">
+									<span>Generating token...</span>
+								</div>
+							</div>
+							@dialog.Footer() {
+								@button.Button(button.Props{
+									Variant:    button.VariantOutline,
+									Attributes: templ.Attributes{"onclick": "copySetupInstructions()"},
+								}) {
+									@icon.Copy(icon.Props{Size: 16})
+									<span class="ml-2" id="copy-btn-text">Copy</span>
+								}
+								@dialog.Close() {
+									@button.Button(button.Props{}) {
+										Close
+									}
+								}
+							}
+						}
+					}
+					@button.Button(button.Props{Href: "/admin/clients/new", Class: "w-full md:w-auto"}) {
+						@icon.Plus(icon.Props{Size: 16})
+						<span class="ml-2">New Client</span>
+					}
+				</div>
+			</div>
+			@setupVMScript(data.Hostname)
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+				@clientsStatsCard("Total Clients", fmt.Sprintf("%d", data.ClientCount), "registered clients", icon.Key(icon.Props{Size: 20}))
+				@clientsStatsCard("Available Scopes", fmt.Sprintf("%d", len(availableScopes())), strings.Join(availableScopes(), ", "), icon.Shield(icon.Props{Size: 20}))
+			</div>
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						Clients
+					}
+					@card.Description() {
+						Registered clients
+					}
+				}
+				@card.Content() {
+					if len(data.Clients) == 0 {
+						<p class="text-muted-foreground text-sm">No clients registered yet.</p>
+					} else {
+						<div class="space-y-4">
+							for _, client := range data.Clients {
+								@clientsListItem(client)
+							}
+						</div>
+					}
+				}
+			}
+		</div>
+	}
+}
+
+templ clientsStatsCard(title, value, subtitle string, iconComponent templ.Component) {
+	@card.Card() {
+		@card.Content(card.ContentProps{Class: "p-6"}) {
+			<div class="flex items-center justify-between mb-2">
+				<span class="text-sm text-muted-foreground">{ title }</span>
+				<div class="text-muted-foreground">
+					@iconComponent
+				</div>
+			</div>
+			<div class="text-2xl font-bold">{ value }</div>
+			<p class="text-sm text-muted-foreground mt-1">{ subtitle }</p>
+		}
+	}
+}
+
+templ clientsListItem(client dbgen.OidcClient) {
+	{{ uris := splitCommaTempl(client.RedirectUris) }}
+	{{ scopes := splitCommaTempl(client.Scopes) }}
+	<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg gap-3">
+		<div class="flex items-center gap-3">
+			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+				@icon.Key(icon.Props{Size: 18})
+			</div>
+			<div class="min-w-0 flex-1">
+				<div class="flex items-center gap-2">
+					<a href={ templ.SafeURL(fmt.Sprintf("/admin/clients/%d", client.ID)) } class="font-medium truncate hover:underline">{ client.Name }</a>
+				</div>
+				<p class="text-sm text-muted-foreground truncate">
+					if len(uris) > 0 {
+						{ uris[0] }
+						if len(uris) > 1 {
+							<span class="ml-1">+{ fmt.Sprintf("%d", len(uris)-1) } more</span>
+						}
+					}
+					<span class="ml-1">·</span>
+					<span
+						title={ client.CreatedAt.Format(time.RFC3339) }
+						class="ml-1"
+					>{ relativeTime(client.CreatedAt) }</span>
+				</p>
+			</div>
+		</div>
+		<div class="flex items-center gap-2 flex-shrink-0">
+			for _, scope := range scopes {
+				@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+					{ scope }
+				}
+			}
+			if len(scopes) == 0 {
+				@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
+					no scopes
+				}
+			}
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					@button.Button(button.Props{
+						Variant: button.VariantGhost,
+						Size:    button.SizeIcon,
+					}) {
+						@icon.EllipsisVertical(icon.Props{Size: 16})
+					}
+				}
+				@dropdown.Content() {
+					@dropdown.Item(dropdown.ItemProps{Href: fmt.Sprintf("/admin/clients/%d", client.ID)}) {
+						@icon.Eye(icon.Props{Size: 14})
+						<span class="ml-2">View</span>
+					}
+					@dropdown.Item(dropdown.ItemProps{Href: fmt.Sprintf("/admin/clients/%d/edit", client.ID)}) {
+						@icon.Pencil(icon.Props{Size: 14})
+						<span class="ml-2">Edit</span>
+					}
+					@dropdown.Separator()
+					@dropdown.Item(dropdown.ItemProps{Class: "text-destructive"}) {
+						<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/admin/clients/%d/archive", client.ID)) }>
+							<button type="submit" class="flex items-center w-full">
+								@icon.Trash(icon.Props{Size: 14})
+								<span class="ml-2">Archive</span>
+							</button>
+						</form>
+					}
+				}
+			}
+		</div>
+	</div>
+}
+
+
+script setupVMScript(hostname string) {
+	window._setupHostname = hostname;
+
+	window.generateSetupToken = async function(event) {
+		const el = document.getElementById('setup-vm-content');
+		el.innerHTML = '<div class="flex items-center justify-center py-8 text-muted-foreground"><span>Generating token...</span></div>';
+		document.getElementById('copy-btn-text').textContent = 'Copy';
+
+		try {
+			const resp = await fetch('/admin/clients/registration-token', { method: 'POST' });
+			if (!resp.ok) throw new Error('Failed to generate token');
+			const data = await resp.json();
+
+			const origin = window._setupHostname;
+			const instructions = `git clone -b main https://github.com/housecat-inc/go-template
+cd go-template
+go run ./cmd/register --token ${data.token} ${origin}/register`;
+
+			window._setupInstructions = instructions;
+
+			el.innerHTML = '<pre class="text-xs bg-muted p-4 rounded-lg overflow-auto max-h-80 whitespace-pre-wrap break-words">' + instructions.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+		} catch (err) {
+			el.innerHTML = '<div class="text-destructive py-4">Failed to generate token: ' + err.message + '</div>';
+		}
+	}
+
+	window.copySetupInstructions = function() {
+		if (window._setupInstructions) {
+			navigator.clipboard.writeText(window._setupInstructions);
+			document.getElementById('copy-btn-text').textContent = 'Copied!';
+			setTimeout(() => { document.getElementById('copy-btn-text').textContent = 'Copy'; }, 2000);
+		}
+	}
+}

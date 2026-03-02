@@ -76,8 +76,20 @@ func TestRequireAdmin(t *testing.T) {
 }
 
 func TestIsAdmin(t *testing.T) {
-	assert.True(t, isAdmin("admin@housecat.com"))
-	assert.False(t, isAdmin("user@example.com"))
-	assert.False(t, isAdmin(""))
-	assert.False(t, isAdmin("housecat.com"))
+	a := assert.New(t)
+	a.True(isAdmin("admin@housecat.com"))
+	a.False(isAdmin("user@example.com"))
+	a.False(isAdmin(""))
+	a.False(isAdmin("housecat.com"))
+	a.False(isAdmin("tool@localhost"))
+}
+
+func TestIsAdminWithProvider(t *testing.T) {
+	a := assert.New(t)
+	a.True(isAdminWithProvider("admin@housecat.com", "Google"))
+	a.True(isAdminWithProvider("admin@housecat.com", "exe.dev"))
+	a.True(isAdminWithProvider("tool@localhost", "localhost"))
+	a.False(isAdminWithProvider("tool@localhost", "exe.dev"))
+	a.False(isAdminWithProvider("tool@localhost", "Google"))
+	a.False(isAdminWithProvider("user@example.com", "localhost"))
 }

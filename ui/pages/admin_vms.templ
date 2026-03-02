@@ -51,12 +51,20 @@ templ AdminVMs(data AdminVMsData) {
 					<p class="text-lg text-muted-foreground mt-1">exe.dev VMs</p>
 				</div>
 				if data.Configured {
-					<form method="POST" action="/admin/browser-link" target="_blank">
-						@button.Button(button.Props{Type: button.TypeSubmit}) {
-							@icon.ExternalLink(icon.Props{Size: 16})
-							<span class="ml-2">Login to exe.dev</span>
-						}
-					</form>
+					<div class="flex gap-2">
+						<form method="POST" action="/admin/vms/new">
+							@button.Button(button.Props{Type: button.TypeSubmit}) {
+								@icon.Plus(icon.Props{Size: 16})
+								<span class="ml-2">New VM</span>
+							}
+						</form>
+						<form method="POST" action="/admin/browser-link" target="_blank">
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline}) {
+								@icon.ExternalLink(icon.Props{Size: 16})
+								<span class="ml-2">Login to exe.dev</span>
+							}
+						</form>
+					</div>
 				}
 			</div>
 			if !data.Configured {

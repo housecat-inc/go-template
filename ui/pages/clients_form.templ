@@ -1,0 +1,160 @@
+package pages
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/housecat-inc/auth/db/dbgen"
+	"github.com/housecat-inc/auth/ui/components/button"
+	"github.com/housecat-inc/auth/ui/components/checkbox"
+	"github.com/housecat-inc/auth/ui/components/form"
+	"github.com/housecat-inc/auth/ui/components/icon"
+	"github.com/housecat-inc/auth/ui/components/input"
+	"github.com/housecat-inc/auth/ui/components/label"
+	"github.com/housecat-inc/auth/ui/components/textarea"
+	"github.com/housecat-inc/auth/ui/layouts"
+)
+
+type ClientsFormData struct {
+	Client          *dbgen.OidcClient
+	AvailableScopes []string
+	LogoutURL       string
+	SelectedScopes  map[string]bool
+	UserEmail       string
+}
+
+func clientFormRedirectURIs(client *dbgen.OidcClient) string {
+	if client != nil {
+		return strings.ReplaceAll(client.RedirectUris, ",", "\n")
+	}
+	return ""
+}
+
+templ ClientsNew(data ClientsFormData) {
+	@layouts.Layout(layouts.NavData{
+		IsAdmin:   true,
+		Title:     "Housecat Auth",
+		UserEmail: data.UserEmail,
+		LogoutURL: data.LogoutURL,
+	}) {
+		@checkbox.Script()
+		<div class="max-w-2xl mx-auto">
+			<div class="mb-8">
+				<h1 class="text-3xl font-bold">Register Client</h1>
+				<p class="text-muted-foreground mt-1">Create a new client</p>
+			</div>
+			<form method="POST" action="/admin/clients" class="bg-card p-4 sm:p-6 lg:p-8 rounded-lg border space-y-6">
+				@clientsFormFields(data)
+				<div class="flex flex-col sm:flex-row gap-3 pt-4">
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Href:    "/admin/clients",
+						Class:   "w-full sm:w-auto sm:flex-1",
+					}) {
+						@icon.X(icon.Props{Size: 16})
+						<span class="ml-2">Cancel</span>
+					}
+					@button.Button(button.Props{
+						Type:  button.TypeSubmit,
+						Class: "w-full sm:w-auto sm:flex-1",
+					}) {
+						@icon.Plus(icon.Props{Size: 16})
+						<span class="ml-2">Create Client</span>
+					}
+				</div>
+			</form>
+		</div>
+	}
+}
+
+templ ClientsEdit(data ClientsFormData) {
+	@layouts.Layout(layouts.NavData{
+		IsAdmin:   true,
+		Title:     "Housecat Auth",
+		UserEmail: data.UserEmail,
+		LogoutURL: data.LogoutURL,
+	}) {
+		@checkbox.Script()
+		<div class="max-w-2xl mx-auto">
+			<div class="mb-8">
+				<h1 class="text-3xl font-bold">Edit Client</h1>
+				<p class="text-muted-foreground mt-1">Update { data.Client.Name }</p>
+			</div>
+			<form method="POST" action={ templ.SafeURL(fmt.Sprintf("/admin/clients/%d", data.Client.ID)) } class="bg-card p-4 sm:p-6 lg:p-8 rounded-lg border space-y-6">
+				@clientsFormFields(data)
+				<div class="flex flex-col sm:flex-row gap-3 pt-4">
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Href:    fmt.Sprintf("/admin/clients/%d", data.Client.ID),
+						Class:   "w-full sm:w-auto sm:flex-1",
+					}) {
+						@icon.X(icon.Props{Size: 16})
+						<span class="ml-2">Cancel</span>
+					}
+					@button.Button(button.Props{
+						Type:  button.TypeSubmit,
+						Class: "w-full sm:w-auto sm:flex-1",
+					}) {
+						@icon.Save(icon.Props{Size: 16})
+						<span class="ml-2">Save Changes</span>
+					}
+				</div>
+			</form>
+		</div>
+	}
+}
+
+templ clientsFormFields(data ClientsFormData) {
+	<div class="space-y-4">
+		<h3 class="text-lg font-semibold">Client Details</h3>
+		@form.Item() {
+			@label.Label(label.Props{For: "client-name"}) {
+				Name
+			}
+			@input.Input(input.Props{
+				ID:          "client-name",
+				Name:        "name",
+				Placeholder: "My Application",
+				Value:       clientFormName(data.Client),
+			})
+		}
+		@form.Item() {
+			@label.Label(label.Props{For: "client-redirect-uris"}) {
+				Redirect URIs
+			}
+			@textarea.Textarea(textarea.Props{
+				ID:          "client-redirect-uris",
+				Name:        "redirect_uris",
+				Placeholder: "https://example.com/callback\nhttps://localhost:3000/callback",
+				Value:       clientFormRedirectURIs(data.Client),
+				Rows:        3,
+			})
+			<p class="text-sm text-muted-foreground mt-1">One URI per line</p>
+		}
+	</div>
+	<div class="space-y-4">
+		<h3 class="text-lg font-semibold">Scopes</h3>
+		<div class="space-y-3">
+			for _, scope := range data.AvailableScopes {
+				<div class="flex items-center gap-3">
+					@checkbox.Checkbox(checkbox.Props{
+						ID:      fmt.Sprintf("scope-%s", scope),
+						Name:    "scopes",
+						Value:   scope,
+						Checked: data.SelectedScopes[scope],
+					})
+					@label.Label(label.Props{For: fmt.Sprintf("scope-%s", scope)}) {
+						{ scope }
+					}
+				</div>
+			}
+		</div>
+	</div>
+}
+
+func clientFormName(client *dbgen.OidcClient) string {
+	if client != nil {
+		return client.Name
+	}
+	return ""
+}

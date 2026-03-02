@@ -1,9 +1,13 @@
 package srv
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/labstack/echo/v4"
 
 	"github.com/housecat-inc/auth/db/dbgen"
@@ -124,4 +128,66 @@ func (s *Server) HandleAdminBrowserLink(c echo.Context) error {
 	}
 
 	return c.Redirect(http.StatusFound, magicLink)
+}
+
+func (s *Server) HandleAdminNewVM(c echo.Context) error {
+	r := c.Request()
+	ctx := r.Context()
+	userID := c.Get("userID").(string)
+	userEmail := c.Get("userEmail").(string)
+
+	if s.ExeDev == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "exe.dev client not configured")
+	}
+
+	token, _, err := s.createRegistrationToken(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	q := dbgen.New(s.DB)
+
+	slog.Info("creating vm", "user", userEmail)
+
+	result, err := s.ExeDev.CreateVM(ctx)
+	if err != nil {
+		return errors.Wrap(err, "create vm")
+	}
+
+	slog.Info("vm created", "name", result.Name, "user", userEmail)
+
+	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
+		ActorID:    userID,
+		ActorType:  "user",
+		Action:     "created_vm",
+		ObjectID:   result.Name,
+		ObjectType: "vm",
+		Metadata:   &userEmail,
+	})
+
+	issue := s.issuerURL(r)
+	prompt := buildVMPrompt(issue, token)
+
+	go func() {
+		for attempt := 0; attempt < 30; attempt++ {
+			time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+			res, err := s.ExeDev.SendPrompt(context.Background(), result.Name, prompt, "claude-sonnet-4.5")
+			if err != nil {
+				slog.Warn("send prompt retry", "vm", result.Name, "attempt", attempt+1, "error", err)
+				continue
+			}
+			slog.Info("prompt sent", "vm", result.Name, "conversation", res.ConversationID)
+			return
+		}
+		slog.Error("send prompt failed after retries", "vm", result.Name)
+	}()
+
+	return c.Redirect(http.StatusFound, result.ShelleyURL)
+}
+
+func buildVMPrompt(issuerURL, token string) string {
+	return fmt.Sprintf(`git clone -b main https://github.com/housecat-inc/go-template
+cd go-template
+go run ./cmd/register --token %s %s/register
+`, token, issuerURL)
 }

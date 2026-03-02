@@ -7,13 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/coreos/go-oidc/v3/oidc"
+	googleoidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/labstack/echo/v4"
 	"golang.org/x/oauth2"
 
@@ -55,17 +56,17 @@ func (s *Server) verifySessionCookie(value string) (string, error) {
 	return id, nil
 }
 
-func (s *Server) setUpOIDC(ctx context.Context) error {
-	provider, err := oidc.NewProvider(ctx, s.OAuth.Issuer)
+func (s *Server) setUpGoogleOIDC(ctx context.Context) error {
+	provider, err := googleoidc.NewProvider(ctx, s.OAuth.Issuer)
 	if err != nil {
 		return errors.Wrap(err, "oidc discovery")
 	}
-	s.oidcProvider = provider
+	s.googleOIDC = provider
 	s.oauth2Config = &oauth2.Config{
 		ClientID:     s.OAuth.ClientID,
 		ClientSecret: s.OAuth.ClientSecret,
 		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
+		Scopes:       []string{googleoidc.ScopeOpenID, "email", "profile"},
 	}
 	return nil
 }
@@ -98,7 +99,7 @@ func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 			provider = session.Provider
 			userEmail = session.Email
 			userID = session.UserID
-		} else if strings.HasPrefix(r.Host, "localhost") {
+		} else if isLoopback(r) {
 			logoutURL = ""
 			provider = "localhost"
 			userEmail = "tool@localhost"
@@ -123,13 +124,22 @@ func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func isAdmin(email string) bool {
-	return strings.HasSuffix(strings.ToLower(email), "@housecat.com")
+	e := strings.ToLower(email)
+	return strings.HasSuffix(e, "@housecat.com")
+}
+
+func isAdminWithProvider(email, provider string) bool {
+	if isAdmin(email) {
+		return true
+	}
+	return provider == "localhost" && strings.HasSuffix(strings.ToLower(email), "@localhost")
 }
 
 func (s *Server) RequireAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		email, _ := c.Get("userEmail").(string)
-		if !isAdmin(email) {
+		provider, _ := c.Get("provider").(string)
+		if !isAdminWithProvider(email, provider) {
 			return echo.NewHTTPError(http.StatusForbidden, "admin access required")
 		}
 		return next(c)
@@ -192,7 +202,7 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest, "no id_token in response")
 	}
-	verifier := s.oidcProvider.Verifier(&oidc.Config{ClientID: s.OAuth.ClientID})
+	verifier := s.googleOIDC.Verifier(&googleoidc.Config{ClientID: s.OAuth.ClientID})
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		slog.Error("id token verify", "error", err)
@@ -311,6 +321,18 @@ func (s *Server) createSessionAndRedirect(c echo.Context, userID, email, provide
 	})
 
 	return c.Redirect(http.StatusFound, "/home")
+}
+
+func isLoopback(r *http.Request) bool {
+	if !strings.HasPrefix(r.Host, "localhost") {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func randomHex(n int) (string, error) {

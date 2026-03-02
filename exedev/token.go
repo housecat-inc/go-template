@@ -51,6 +51,30 @@ func SignToken(signer ssh.Signer, cmds []string, ttl time.Duration) (string, err
 	return "exe0." + payload + "." + sigB64, nil
 }
 
+// SignVMToken creates a token scoped to a specific VM using namespace "v0@VMNAME.exe.xyz".
+func SignVMToken(signer ssh.Signer, vmName string, ttl time.Duration) (string, error) {
+	namespace := "v0@" + vmName + ".exe.xyz"
+	perms := struct {
+		Exp int64 `json:"exp"`
+	}{
+		Exp: time.Now().Add(ttl).Unix(),
+	}
+	permsJSON, err := json.Marshal(perms)
+	if err != nil {
+		return "", errors.Wrap(err, "marshal permissions")
+	}
+
+	payload := base64.RawURLEncoding.EncodeToString(permsJSON)
+
+	sigBlob, err := sshsigSign(signer, namespace, permsJSON)
+	if err != nil {
+		return "", errors.Wrap(err, "sshsig sign")
+	}
+
+	sigB64 := base64.RawURLEncoding.EncodeToString(sigBlob)
+	return "exe0." + payload + "." + sigB64, nil
+}
+
 // sshsigSign produces the binary SSHSIG blob (the content between
 // -----BEGIN SSH SIGNATURE----- / -----END SSH SIGNATURE----- armor lines).
 func sshsigSign(signer ssh.Signer, namespace string, data []byte) ([]byte, error) {
