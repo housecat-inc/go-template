@@ -48,10 +48,12 @@ templ Layout(nav NavData) {
 							</div>
 							<div class="flex items-center gap-2">
 								@theme.ThemeSwitcher()
-								if nav.UserEmail != "" {
-									<span class="text-sm text-muted-foreground hidden sm:inline">
-										Signed in as <strong class="text-foreground">{ nav.UserEmail }</strong>
-									</span>
+								if nav.LogoutURL != "" {
+									if nav.UserEmail != "" {
+										<span class="text-sm text-muted-foreground hidden sm:inline">
+											Signed in as <strong class="text-foreground">{ nav.UserEmail }</strong>
+										</span>
+									}
 									@button.Button(button.Props{
 										Variant: button.VariantGhost,
 										Size:    button.SizeSm,
