@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/labstack/echo/v4"
-	"golang.org/x/oauth2"
+	"github.com/zitadel/oidc/v3/pkg/client/rp"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 
 	"github.com/housecat-inc/go-template/db/dbgen"
 )
@@ -56,17 +56,11 @@ func (s *Server) verifySessionCookie(value string) (string, error) {
 }
 
 func (s *Server) setUpOIDC(ctx context.Context) error {
-	provider, err := oidc.NewProvider(ctx, s.OAuth.Issuer)
+	provider, err := rp.NewRelyingPartyOIDC(ctx, s.OAuth.Issuer, s.OAuth.ClientID, s.OAuth.ClientSecret, "", []string{oidc.ScopeOpenID, oidc.ScopeEmail, oidc.ScopeProfile})
 	if err != nil {
 		return errors.Wrap(err, "oidc discovery")
 	}
-	s.oidcProvider = provider
-	s.oauth2Config = &oauth2.Config{
-		ClientID:     s.OAuth.ClientID,
-		ClientSecret: s.OAuth.ClientSecret,
-		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
-	}
+	s.relyingParty = provider
 	return nil
 }
 
@@ -141,7 +135,7 @@ func (s *Server) HandleAuthGoogle(c echo.Context) error {
 		MaxAge:   600,
 	})
 
-	cfg := *s.oauth2Config
+	cfg := *s.relyingParty.OAuthConfig()
 	cfg.RedirectURL = s.callbackURL(r)
 	return c.Redirect(http.StatusFound, cfg.AuthCodeURL(state))
 }
@@ -167,31 +161,22 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 		MaxAge:   -1,
 	})
 
-	cfg := *s.oauth2Config
+	cfg := *s.relyingParty.OAuthConfig()
 	cfg.RedirectURL = s.callbackURL(r)
-	token, err := cfg.Exchange(ctx, c.QueryParam("code"))
+	oauthToken, err := cfg.Exchange(ctx, c.QueryParam("code"))
 	if err != nil {
 		slog.Error("oauth exchange", "error", err)
 		return echo.NewHTTPError(http.StatusBadRequest, "failed to exchange code")
 	}
 
-	rawIDToken, ok := token.Extra("id_token").(string)
+	rawIDToken, ok := oauthToken.Extra("id_token").(string)
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest, "no id_token in response")
 	}
-	verifier := s.oidcProvider.Verifier(&oidc.Config{ClientID: s.OAuth.ClientID})
-	idToken, err := verifier.Verify(ctx, rawIDToken)
+	claims, err := rp.VerifyTokens[*oidc.IDTokenClaims](ctx, oauthToken.AccessToken, rawIDToken, s.relyingParty.IDTokenVerifier())
 	if err != nil {
 		slog.Error("id token verify", "error", err)
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid id_token")
-	}
-
-	var claims struct {
-		Email string `json:"email"`
-		Sub   string `json:"sub"`
-	}
-	if err := idToken.Claims(&claims); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to parse claims")
 	}
 
 	sessionID, err := randomHex(32)
@@ -203,7 +188,7 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
 	if err := q.InsertSession(ctx, dbgen.InsertSessionParams{
 		ID:        sessionID,
-		UserID:    claims.Sub,
+		UserID:    claims.Subject,
 		Email:     claims.Email,
 		ExpiresAt: expiresAt,
 	}); err != nil {
