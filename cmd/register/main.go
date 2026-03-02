@@ -245,8 +245,8 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	}
 
 	// Reverse proxy URL with embedded credentials (Basic auth)
-	proxyBase := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost + ":8443"
-	proxyBaseClean := "https://" + proxyHost + ":8443"
+	proxyBase := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost
+	proxyBaseClean := "https://" + proxyHost
 
 	// git url.<base>.insteadOf rewrites github.com URLs to go through the proxy
 	gitConfigs := [][2]string{
