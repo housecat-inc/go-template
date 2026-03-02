@@ -59,6 +59,7 @@ func (s *Server) Serve(addr string) error {
 		e.GET("/auth/callback", s.HandleAuthCallback)
 	}
 	e.GET("/auth/logout", s.HandleAuthLogout)
+	e.GET("/generate", s.HandleGenerateName)
 	assetHandler := http.FileServer(http.FS(assets.FS))
 	e.GET("/assets/*", echo.WrapHandler(http.StripPrefix("/assets", assetHandler)))
 
