@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -49,7 +50,7 @@ func run() error {
 	}
 
 	// Register client via RFC 7591
-	clientID, clientSecret, err := registerClient(token, endpoint, appName)
+	clientID, clientSecret, scope, err := registerClient(token, endpoint, appName)
 	if err != nil {
 		return fmt.Errorf("register client: %w", err)
 	}
@@ -60,6 +61,15 @@ func run() error {
 		return fmt.Errorf("generate session secret: %w", err)
 	}
 	sessionSecret := hex.EncodeToString(secretBytes)
+
+	// Set up git proxy if git scope was granted
+	if hasScope(scope, "git") {
+		if err := setupGitProxy(issuer, clientID, clientSecret); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: git proxy setup: %v\n", err)
+		}
+	} else {
+		fmt.Println("==> No git scope granted, skipping git proxy setup")
+	}
 
 	// Write .env
 	if err := writeEnv(clientID, clientSecret, issuer, sessionSecret); err != nil {
@@ -121,13 +131,13 @@ type clientMetadata struct {
 	Scope                   string   `json:"scope"`
 }
 
-// RFC 7591 registration response.
 type clientRegistrationResponse struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
+	Scope        string `json:"scope"`
 }
 
-func registerClient(token, endpoint, appName string) (string, string, error) {
+func registerClient(token, endpoint, appName string) (string, string, string, error) {
 	fmt.Printf("==> Registering client '%s' with %s...\n", appName, endpoint)
 
 	body, err := json.Marshal(clientMetadata{
@@ -139,43 +149,43 @@ func registerClient(token, endpoint, appName string) (string, string, error) {
 		GrantTypes:              []string{"authorization_code"},
 		ResponseTypes:           []string{"code"},
 		TokenEndpointAuthMethod: "client_secret_basic",
-		Scope:                   "openid email profile",
+		Scope:                   "openid email profile git",
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("marshal request: %w", err)
+		return "", "", "", fmt.Errorf("marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", "", fmt.Errorf("create request: %w", err)
+		return "", "", "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("POST register: %w", err)
+		return "", "", "", fmt.Errorf("POST register: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", "", fmt.Errorf("read response: %w", err)
+		return "", "", "", fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("register returned %d: %s", resp.StatusCode, respBody)
+		return "", "", "", fmt.Errorf("register returned %d: %s", resp.StatusCode, respBody)
 	}
 
 	var result clientRegistrationResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", "", fmt.Errorf("decode response: %w", err)
+		return "", "", "", fmt.Errorf("decode response: %w", err)
 	}
 	if result.ClientID == "" {
-		return "", "", fmt.Errorf("empty client_id in response: %s", respBody)
+		return "", "", "", fmt.Errorf("empty client_id in response: %s", respBody)
 	}
 
-	return result.ClientID, result.ClientSecret, nil
+	return result.ClientID, result.ClientSecret, result.Scope, nil
 }
 
 func writeEnv(clientID, clientSecret, issuer, sessionSecret string) error {
@@ -210,6 +220,67 @@ func writeEnv(clientID, clientSecret, issuer, sessionSecret string) error {
 	}
 
 	return nil
+}
+
+func setupGitProxy(issuer, clientID, clientSecret string) error {
+	fmt.Println("==> Setting up git proxy...")
+
+	// Probe /gitproxy/ca.crt to detect if git proxy is enabled
+	resp, err := http.Get(issuer + "/gitproxy/ca.crt")
+	if err != nil {
+		return fmt.Errorf("probe git proxy: %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		fmt.Println("    Git proxy not enabled on auth server, skipping")
+		return nil
+	}
+
+	// Parse issuer to get host (with port if present)
+	issuerURL, err := url.Parse(issuer)
+	if err != nil {
+		return fmt.Errorf("parse issuer: %w", err)
+	}
+	proxyHost := issuerURL.Host
+
+	// Reverse proxy URL with embedded credentials (Basic auth)
+	proxyBase := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost
+	proxyBaseClean := "https://" + proxyHost
+
+	// git url.<base>.insteadOf rewrites github.com URLs to go through the proxy
+	_ = shell("git", "config", "--global", "url."+proxyBase+"/github.com/.insteadOf", "https://github.com/")
+
+	// gh CLI: set GH_HOST and GH_TOKEN to route through proxy
+	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport GH_HOST=%s/api.github.com\nexport GH_TOKEN=x\n",
+		proxyBaseClean)
+
+	bashrc := filepath.Join(os.Getenv("HOME"), ".bashrc")
+	if f, err := os.OpenFile(bashrc, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644); err == nil {
+		_, _ = f.WriteString(profileLines)
+		f.Close()
+	}
+
+	fmt.Printf("    Proxy:       %s\n", proxyBaseClean)
+	fmt.Printf("    insteadOf:   https://github.com/ -> %s/github.com/\n", proxyBaseClean)
+
+	fmt.Println("==> Smoke testing git proxy...")
+	out, err := exec.Command("git", "ls-remote", "--heads", "https://github.com/housecat-inc/go-template.git").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git ls-remote failed: %w\n%s", err, out)
+	}
+	lines := strings.Count(strings.TrimSpace(string(out)), "\n") + 1
+	fmt.Printf("    git ls-remote: OK (%d refs)\n", lines)
+
+	return nil
+}
+
+func hasScope(scopes, target string) bool {
+	for _, s := range strings.Fields(scopes) {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }
 
 func shell(name string, args ...string) error {

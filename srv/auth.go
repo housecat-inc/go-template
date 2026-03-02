@@ -179,6 +179,25 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid id_token")
 	}
 
+	userEmail := claims.Email
+	userSubject := claims.Subject
+
+	// If the ID token didn't include email, fetch from userinfo endpoint.
+	if userEmail == "" {
+		info, err := rp.Userinfo[*oidc.UserInfo](ctx, oauthToken.AccessToken, oauthToken.TokenType, claims.Subject, s.relyingParty)
+		if err != nil {
+			slog.Warn("userinfo fetch", "error", err)
+		} else {
+			userEmail = info.Email
+			if userEmail == "" {
+				userEmail = info.PreferredUsername
+			}
+			if userSubject == "" {
+				userSubject = info.Subject
+			}
+		}
+	}
+
 	sessionID, err := randomHex(32)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate session")
@@ -188,8 +207,8 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
 	if err := q.InsertSession(ctx, dbgen.InsertSessionParams{
 		ID:        sessionID,
-		UserID:    claims.Subject,
-		Email:     claims.Email,
+		UserID:    userSubject,
+		Email:     userEmail,
 		ExpiresAt: expiresAt,
 	}); err != nil {
 		slog.Error("insert session", "error", err)
