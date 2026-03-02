@@ -119,6 +119,7 @@ func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 
 func (s *Server) HandleAuthGoogle(c echo.Context) error {
 	r := c.Request()
+	secure := isSecureRequest(r)
 
 	state, err := randomHex(16)
 	if err != nil {
@@ -130,10 +131,22 @@ func (s *Server) HandleAuthGoogle(c echo.Context) error {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   600,
 	})
+
+	if redirect := c.QueryParam("redirect"); redirect != "" {
+		c.SetCookie(&http.Cookie{
+			Name:     "oauth_redirect",
+			Value:    redirect,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   600,
+		})
+	}
 
 	cfg := *s.relyingParty.OAuthConfig()
 	cfg.RedirectURL = s.callbackURL(r)
@@ -198,34 +211,7 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 		}
 	}
 
-	sessionID, err := randomHex(32)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate session")
-	}
-
-	q := dbgen.New(s.DB)
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	if err := q.InsertSession(ctx, dbgen.InsertSessionParams{
-		ID:        sessionID,
-		UserID:    userSubject,
-		Email:     userEmail,
-		ExpiresAt: expiresAt,
-	}); err != nil {
-		slog.Error("insert session", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create session")
-	}
-
-	c.SetCookie(&http.Cookie{
-		Name:     "session_id",
-		Value:    s.signSessionID(sessionID),
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   isSecureRequest(r),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 60 * 60,
-	})
-
-	return c.Redirect(http.StatusFound, "/home")
+	return s.createSessionAndRedirect(c, userSubject, userEmail)
 }
 
 func (s *Server) HandleAuthLogout(c echo.Context) error {
@@ -291,6 +277,7 @@ func (s *Server) HandleAuthExeDev(c echo.Context) error {
 func (s *Server) createSessionAndRedirect(c echo.Context, userID, email string) error {
 	r := c.Request()
 	ctx := r.Context()
+	secure := isSecureRequest(r)
 
 	sessionID, err := randomHex(32)
 	if err != nil {
@@ -313,12 +300,28 @@ func (s *Server) createSessionAndRedirect(c echo.Context, userID, email string) 
 		Value:    s.signSessionID(sessionID),
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   30 * 24 * 60 * 60,
 	})
 
-	return c.Redirect(http.StatusFound, "/home")
+	redirectTo := "/home"
+	if cookie, err := r.Cookie("oauth_redirect"); err == nil && cookie.Value != "" {
+		redirectTo = cookie.Value
+		c.SetCookie(&http.Cookie{
+			Name:     "oauth_redirect",
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+	} else if redirect := c.QueryParam("redirect"); redirect != "" {
+		redirectTo = redirect
+	}
+
+	return c.Redirect(http.StatusFound, redirectTo)
 }
 
 func randomHex(n int) (string, error) {
