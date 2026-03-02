@@ -225,36 +225,30 @@ func writeEnv(clientID, clientSecret, issuer, sessionSecret string) error {
 func setupGitProxy(issuer, clientID, clientSecret string) error {
 	fmt.Println("==> Setting up git proxy...")
 
-	caURL := issuer + "/gitproxy/ca.crt"
-	resp, err := http.Get(caURL)
+	// Probe /gitproxy/ca.crt to detect if git proxy is enabled
+	resp, err := http.Get(issuer + "/gitproxy/ca.crt")
 	if err != nil {
-		return fmt.Errorf("fetch ca: %w", err)
+		return fmt.Errorf("probe git proxy: %w", err)
 	}
-	defer resp.Body.Close()
-
+	resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		fmt.Println("    Git proxy not enabled on auth server, skipping")
 		return nil
 	}
 
-	// Derive proxy base URL from issuer hostname
-	proxyHost := strings.TrimPrefix(issuer, "https://")
-	proxyHost = strings.TrimPrefix(proxyHost, "http://")
-	if idx := strings.Index(proxyHost, ":"); idx != -1 {
-		proxyHost = proxyHost[:idx]
+	// Parse issuer to get host (with port if present)
+	issuerURL, err := url.Parse(issuer)
+	if err != nil {
+		return fmt.Errorf("parse issuer: %w", err)
 	}
+	proxyHost := issuerURL.Host
 
 	// Reverse proxy URL with embedded credentials (Basic auth)
 	proxyBase := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost
 	proxyBaseClean := "https://" + proxyHost
 
 	// git url.<base>.insteadOf rewrites github.com URLs to go through the proxy
-	gitConfigs := [][2]string{
-		{"url." + proxyBase + "/github.com/.insteadOf", "https://github.com/"},
-	}
-	for _, cfg := range gitConfigs {
-		_ = shell("git", "config", "--global", cfg[0], cfg[1])
-	}
+	_ = shell("git", "config", "--global", "url."+proxyBase+"/github.com/.insteadOf", "https://github.com/")
 
 	// gh CLI: set GH_HOST and GH_TOKEN to route through proxy
 	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport GH_HOST=%s/api.github.com\nexport GH_TOKEN=x\n",
