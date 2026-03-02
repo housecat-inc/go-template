@@ -146,25 +146,36 @@ func serviceSetup(dir string) error {
 		fmt.Println("==> tailwindcss already installed")
 	}
 
-	fmt.Printf("==> Running make install in %s...\n", dir)
-	cmd := exec.Command("make", "install")
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("make install: %w", err)
+	if hasMakeTarget(dir, "install") {
+		fmt.Printf("==> Running make install in %s...\n", dir)
+		cmd := exec.Command("make", "install")
+		cmd.Dir = dir
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("make install: %w", err)
+		}
+	} else {
+		fmt.Printf("==> No Makefile install target in %s, running default build...\n", dir)
+		if err := defaultBuildInstall(dir); err != nil {
+			return err
+		}
 	}
 
-	fmt.Println("==> Installing systemd unit...")
 	svcFile := filepath.Join(dir, "srv.service")
-	if err := sudo("cp", svcFile, "/etc/systemd/system/srv.service"); err != nil {
-		return fmt.Errorf("copy service file: %w", err)
-	}
-	if err := sudo("systemctl", "daemon-reload"); err != nil {
-		return fmt.Errorf("daemon-reload: %w", err)
-	}
-	if err := sudo("systemctl", "enable", "srv.service"); err != nil {
-		return fmt.Errorf("enable service: %w", err)
+	if _, err := os.Stat(svcFile); err == nil {
+		fmt.Println("==> Installing systemd unit...")
+		if err := sudo("cp", svcFile, "/etc/systemd/system/srv.service"); err != nil {
+			return fmt.Errorf("copy service file: %w", err)
+		}
+		if err := sudo("systemctl", "daemon-reload"); err != nil {
+			return fmt.Errorf("daemon-reload: %w", err)
+		}
+		if err := sudo("systemctl", "enable", "srv.service"); err != nil {
+			return fmt.Errorf("enable service: %w", err)
+		}
+	} else {
+		fmt.Println("==> No srv.service in repo, skipping systemd setup")
 	}
 
 	return nil
@@ -319,6 +330,58 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	}
 	lines := strings.Count(strings.TrimSpace(string(out)), "\n") + 1
 	fmt.Printf("    git ls-remote: OK (%d refs)\n", lines)
+
+	return nil
+}
+
+func hasMakeTarget(dir, target string) bool {
+	makefile := filepath.Join(dir, "Makefile")
+	data, err := os.ReadFile(makefile)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, target+":") {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultBuildInstall(dir string) error {
+	generate := exec.Command("go", "generate", "./...")
+	generate.Dir = dir
+	generate.Stdout = os.Stdout
+	generate.Stderr = os.Stderr
+	_ = generate.Run()
+
+	build := exec.Command("go", "build", "-o", "bin/srv", "./cmd/srv")
+	build.Dir = dir
+	build.Stdout = os.Stdout
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("go build: %w", err)
+	}
+
+	srvBin := filepath.Join(dir, "bin", "srv")
+	if err := sudo("mkdir", "-p", "/opt/srv/bin", "/opt/srv/data"); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+	if err := sudo("cp", srvBin, "/opt/srv/bin/srv"); err != nil {
+		return fmt.Errorf("cp srv: %w", err)
+	}
+	if err := sudo("chown", "root:root", "/opt/srv/bin/srv"); err != nil {
+		return err
+	}
+	if err := sudo("chmod", "0755", "/opt/srv/bin/srv"); err != nil {
+		return err
+	}
+	if err := sudo("chown", "-R", "exedev:exedev", "/opt/srv/data"); err != nil {
+		return err
+	}
+	if err := sudo("chmod", "0700", "/opt/srv/data"); err != nil {
+		return err
+	}
 
 	return nil
 }
