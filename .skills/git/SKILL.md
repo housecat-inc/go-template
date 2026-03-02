@@ -5,22 +5,24 @@ description: Git and GitHub workflow — auth via GitHub App, branch management 
 
 ## Auth
 
-If `gh` has auth problems, run `gh auth status` and if the user is the bot run `gh-app` to refresh the token.
+The `gh` wrapper (`cmd/gh`) transparently refreshes GitHub tokens before running the real `gh` CLI. It supports two modes:
+
+- **Proxy mode** (`GH_PROXY_URL` set): fetches a token from the auth proxy
+- **Direct mode** (PEM at `~/.ssh/shelley-agent.pem`): authenticates directly with GitHub
 
 ### VM Auth Setup
 
-A VM uses `gh-app` to to auth to GitHub as `shelley-agent[bot]` using a GitHub App (ID: `2976885`) and a private key stored at `~/.ssh/shelley-agent.pem`, to refresh the a token then run `gh`.
-
-Install the pem to `~/.ssh/` and `gh-app` to PATH (once per VM). After authenticating, configure git to use `gh` for HTTPS credentials.
+Install the wrapper and configure git (once per VM):
 
 ```bash
 # write ~/.ssh/shelley-agent.pem
-go install github.com/housecat-inc/go-template/cmd/gh-app@latest
-gh-app
+go install github.com/housecat-inc/go-template/cmd/gh@latest
 gh auth setup-git
 git config --global user.name  = shelley-agent[bot]
 git config --global user.email = 2976885+shelley-agent[bot]@users.noreply.github.com
 ```
+
+The wrapper installs to `~/go/bin/gh` and finds the real `gh` at `/usr/bin/gh` automatically.
 
 ## Branch Management
 
@@ -51,7 +53,6 @@ git commit -m "add search endpoint and handler"
 
 ```bash
 gh auth status
-gh-app # if a VM with expired token
 git push origin feature/short-description
 ```
 

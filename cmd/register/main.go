@@ -262,9 +262,9 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	fmt.Printf("    Proxy:       %s\n", proxyBaseClean)
 	fmt.Printf("    insteadOf:   https://github.com/ -> %s/github.com/\n", proxyBaseClean)
 
-	fmt.Println("==> Installing gh-app...")
-	if err := shell("go", "install", "github.com/housecat-inc/go-template/cmd/gh-app@latest"); err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: install gh-app: %v\n", err)
+	fmt.Println("==> Installing gh wrapper...")
+	if err := shell("go", "install", "github.com/housecat-inc/go-template/cmd/gh@latest"); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: install gh wrapper: %v\n", err)
 	}
 
 	fmt.Println("==> Smoke testing git proxy...")
