@@ -130,7 +130,7 @@ func (s *Server) HandleAuthGoogle(c echo.Context) error {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   600,
 	})
@@ -156,7 +156,7 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
@@ -165,7 +165,7 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 	cfg.RedirectURL = s.callbackURL(r)
 	oauthToken, err := cfg.Exchange(ctx, c.QueryParam("code"))
 	if err != nil {
-		slog.Error("oauth exchange", "error", err)
+		slog.Error("oauth exchange", "error", err, "redirect_uri", cfg.RedirectURL, "token_url", cfg.Endpoint.TokenURL)
 		return echo.NewHTTPError(http.StatusBadRequest, "failed to exchange code")
 	}
 
@@ -201,7 +201,7 @@ func (s *Server) HandleAuthCallback(c echo.Context) error {
 		Value:    s.signSessionID(sessionID),
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   30 * 24 * 60 * 60,
 	})
@@ -224,7 +224,7 @@ func (s *Server) HandleAuthLogout(c echo.Context) error {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
@@ -232,9 +232,21 @@ func (s *Server) HandleAuthLogout(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/")
 }
 
+func isSecureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if r.Header.Get("X-Forwarded-Proto") != "" {
+		return strings.HasPrefix(r.Header.Get("X-Forwarded-Proto"), "https")
+	}
+	// Behind a proxy that doesn't set X-Forwarded-Proto — assume HTTPS
+	// unless the request is clearly local development.
+	return !strings.HasPrefix(r.Host, "localhost")
+}
+
 func (s *Server) callbackURL(r *http.Request) string {
 	scheme := "https"
-	if r.TLS == nil && !strings.HasPrefix(r.Header.Get("X-Forwarded-Proto"), "https") {
+	if !isSecureRequest(r) {
 		scheme = "http"
 	}
 	return scheme + "://" + r.Host + "/auth/callback"
@@ -282,7 +294,7 @@ func (s *Server) createSessionAndRedirect(c echo.Context, userID, email string) 
 		Value:    s.signSessionID(sessionID),
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   isSecureRequest(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   30 * 24 * 60 * 60,
 	})
