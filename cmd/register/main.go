@@ -43,6 +43,11 @@ func run() error {
 	}
 	appName, _, _ := strings.Cut(hostname, ".")
 
+	// Service setup
+	if err := serviceSetup(); err != nil {
+		return fmt.Errorf("service setup: %w", err)
+	}
+
 	// Register client via RFC 7591
 	clientID, clientSecret, err := registerClient(token, endpoint, appName)
 	if err != nil {
@@ -71,6 +76,38 @@ func run() error {
 	fmt.Printf("    App:       %s\n", appName)
 	fmt.Printf("    Client ID: %s\n", clientID)
 	_ = shell("systemctl", "status", "srv", "--no-pager")
+	return nil
+}
+
+func serviceSetup() error {
+	// Install tailwindcss
+	if _, err := exec.LookPath("tailwindcss"); err != nil {
+		fmt.Println("==> Installing tailwindcss...")
+		if err := shell("bash", "-c", "curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.1/tailwindcss-linux-x64 && chmod +x tailwindcss-linux-x64 && sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss"); err != nil {
+			return fmt.Errorf("install tailwindcss: %w", err)
+		}
+	} else {
+		fmt.Println("==> tailwindcss already installed")
+	}
+
+	// Build and install
+	fmt.Println("==> Running make install...")
+	if err := shell("make", "install"); err != nil {
+		return fmt.Errorf("make install: %w", err)
+	}
+
+	// Install systemd unit
+	fmt.Println("==> Installing systemd unit...")
+	if err := sudo("cp", "srv.service", "/etc/systemd/system/srv.service"); err != nil {
+		return fmt.Errorf("copy service file: %w", err)
+	}
+	if err := sudo("systemctl", "daemon-reload"); err != nil {
+		return fmt.Errorf("daemon-reload: %w", err)
+	}
+	if err := sudo("systemctl", "enable", "srv.service"); err != nil {
+		return fmt.Errorf("enable service: %w", err)
+	}
+
 	return nil
 }
 
