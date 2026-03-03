@@ -97,7 +97,7 @@ sudo chmod 600 /opt/srv/data/gh-app.pem
 GH_APP_PEM_PATH=gh-app.pem
 GH_APP_ID=2976885
 GH_INSTALLATION_ID=113185174
-GH_ALLOWED_REPOS=housecat-inc/go-template
+GH_ALLOWED_REPOS=housecat-inc/go-template,housecat-inc/app
 ```
 
 The installation ID identifies which GitHub org/account the app is installed on. Find it with `gh api /app/installations --jq '.[0].id'`.

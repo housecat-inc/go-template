@@ -54,7 +54,7 @@ func relativeTime(t time.Time) string {
 	}
 }
 
-templ Home(data PageData, isAdmin bool) {
+templ Profile(data PageData, isAdmin bool) {
 	@layouts.Layout(layouts.NavData{
 		IsAdmin:   isAdmin,
 		Title:     "Housecat Auth",

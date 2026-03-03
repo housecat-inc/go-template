@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -476,6 +477,97 @@ func TestE2E_BadCredsFallback(t *testing.T) {
 	a.Equal(http.StatusOK, resp2.StatusCode)
 	body, _ := io.ReadAll(resp2.Body)
 	a.Contains(string(body), "ng refs/heads/whatever")
+}
+
+// ---------------------------------------------------------------------------
+// Token endpoint
+// ---------------------------------------------------------------------------
+
+func TestE2E_TokenEndpoint(t *testing.T) {
+	r := require.New(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
+	defer upstream.Close()
+
+	store := &staticPolicyStore{
+		policies: map[string]*Policy{
+			"cid:csecret": {
+				AllowedOps:     []Op{OpFetch, OpPush, OpAPIRead, OpAPIWrite},
+				AllowedRepos:   []string{"org/repo"},
+				BranchPrefixes: []string{"test-vm/*"},
+			},
+		},
+	}
+
+	p, _ := testProxy(t, upstream, store)
+
+	t.Run("no auth returns 401", func(t *testing.T) {
+		a := assert.New(t)
+		token, code, err := requestToken(p, "", "")
+		r.NoError(err)
+		a.Equal(http.StatusUnauthorized, code)
+		a.Empty(token)
+	})
+
+	t.Run("bad creds returns 403", func(t *testing.T) {
+		a := assert.New(t)
+		token, code, err := requestToken(p, "bad", "creds")
+		r.NoError(err)
+		a.Equal(http.StatusForbidden, code)
+		a.Empty(token)
+	})
+
+	t.Run("valid creds returns token", func(t *testing.T) {
+		a := assert.New(t)
+		token, code, err := requestToken(p, "cid", "csecret")
+		r.NoError(err)
+		a.Equal(http.StatusOK, code)
+		a.Equal("test-gh-token", token)
+	})
+}
+
+func TestE2E_TokenEndpointNoAPIRead(t *testing.T) {
+	a := assert.New(t)
+	r := require.New(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
+	defer upstream.Close()
+
+	store := &staticPolicyStore{
+		policies: map[string]*Policy{
+			"cid:csecret": {
+				AllowedOps:   []Op{OpFetch},
+				AllowedRepos: []string{"org/repo"},
+			},
+		},
+	}
+
+	p, _ := testProxy(t, upstream, store)
+	token, code, err := requestToken(p, "cid", "csecret")
+	r.NoError(err)
+	a.Equal(http.StatusForbidden, code)
+	a.Empty(token)
+}
+
+func requestToken(p *Proxy, user, pass string) (string, int, error) {
+	req := httptest.NewRequest("GET", "/gh/token", nil)
+	if user != "" {
+		req.SetBasicAuth(user, pass)
+	}
+	w := httptest.NewRecorder()
+	p.HandleToken(w, req)
+
+	if w.Code != http.StatusOK {
+		return "", w.Code, nil
+	}
+
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		return "", w.Code, err
+	}
+	return result.Token, w.Code, nil
 }
 
 // ---------------------------------------------------------------------------

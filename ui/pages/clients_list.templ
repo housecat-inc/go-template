@@ -18,7 +18,6 @@ import (
 type ClientsListData struct {
 	ClientCount  int64
 	Clients      []dbgen.OidcClient
-	Hostname  string
 	LogoutURL string
 	UserEmail string
 }
@@ -39,54 +38,12 @@ templ ClientsList(data ClientsListData) {
 					<p class="text-lg text-muted-foreground mt-1">Register and manage clients</p>
 				</div>
 				<div class="flex gap-2">
-					@dialog.Dialog(dialog.Props{ID: "setup-vm-dialog"}) {
-						@dialog.Trigger() {
-							@button.Button(button.Props{
-								Variant: button.VariantOutline,
-								Class:   "w-full md:w-auto",
-								Attributes: templ.Attributes{"onclick": "generateSetupToken(event)"},
-							}) {
-								@icon.Monitor(icon.Props{Size: 16})
-								<span class="ml-2">VM Instructions</span>
-							}
-						}
-						@dialog.Content(dialog.ContentProps{Class: "max-w-2xl"}) {
-							@dialog.Header() {
-								@dialog.Title() {
-									VM Instructions
-								}
-								@dialog.Description() {
-									Copy the instructions below to set up Housecat Auth on a new VM.
-								}
-							}
-							<div id="setup-vm-content" class="mt-4">
-								<div class="flex items-center justify-center py-8 text-muted-foreground">
-									<span>Generating token...</span>
-								</div>
-							</div>
-							@dialog.Footer() {
-								@button.Button(button.Props{
-									Variant:    button.VariantOutline,
-									Attributes: templ.Attributes{"onclick": "copySetupInstructions()"},
-								}) {
-									@icon.Copy(icon.Props{Size: 16})
-									<span class="ml-2" id="copy-btn-text">Copy</span>
-								}
-								@dialog.Close() {
-									@button.Button(button.Props{}) {
-										Close
-									}
-								}
-							}
-						}
-					}
 					@button.Button(button.Props{Href: "/admin/clients/new", Class: "w-full md:w-auto"}) {
 						@icon.Plus(icon.Props{Size: 16})
 						<span class="ml-2">New Client</span>
 					}
 				</div>
 			</div>
-			@setupVMScript(data.Hostname)
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 				@clientsStatsCard("Total Clients", fmt.Sprintf("%d", data.ClientCount), "registered clients", icon.Key(icon.Props{Size: 20}))
 				@clientsStatsCard("Available Scopes", fmt.Sprintf("%d", len(availableScopes())), strings.Join(availableScopes(), ", "), icon.Shield(icon.Props{Size: 20}))
@@ -230,38 +187,3 @@ templ clientsListItem(client dbgen.OidcClient) {
 	</div>
 }
 
-
-script setupVMScript(hostname string) {
-	window._setupHostname = hostname;
-
-	window.generateSetupToken = async function(event) {
-		const el = document.getElementById('setup-vm-content');
-		el.innerHTML = '<div class="flex items-center justify-center py-8 text-muted-foreground"><span>Generating token...</span></div>';
-		document.getElementById('copy-btn-text').textContent = 'Copy';
-
-		try {
-			const resp = await fetch('/admin/clients/registration-token', { method: 'POST' });
-			if (!resp.ok) throw new Error('Failed to generate token');
-			const data = await resp.json();
-
-			const origin = window._setupHostname;
-			const instructions = `git clone -b main https://github.com/housecat-inc/go-template go-template
-cd go-template
-go run ./cmd/register ${origin.replace('://', '://' + data.token + '@')}/register`;
-
-			window._setupInstructions = instructions;
-
-			el.innerHTML = '<pre class="text-xs bg-muted p-4 rounded-lg overflow-auto max-h-80 whitespace-pre-wrap break-words">' + instructions.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
-		} catch (err) {
-			el.innerHTML = '<div class="text-destructive py-4">Failed to generate token: ' + err.message + '</div>';
-		}
-	}
-
-	window.copySetupInstructions = function() {
-		if (window._setupInstructions) {
-			navigator.clipboard.writeText(window._setupInstructions);
-			document.getElementById('copy-btn-text').textContent = 'Copied!';
-			setTimeout(() => { document.getElementById('copy-btn-text').textContent = 'Copy'; }, 2000);
-		}
-	}
-}

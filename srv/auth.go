@@ -334,7 +334,7 @@ func (s *Server) createSessionAndRedirect(c echo.Context, userID, email, provide
 		MaxAge:   30 * 24 * 60 * 60,
 	})
 
-	redirectTo := "/home"
+	redirectTo := "/admin/vms"
 	if cookie, err := r.Cookie("oauth_redirect"); err == nil && cookie.Value != "" {
 		redirectTo = cookie.Value
 		c.SetCookie(&http.Cookie{

@@ -19,6 +19,7 @@ type AdminVMsData struct {
 	Activities []ActivityEntry
 	Configured bool
 	Error      error
+	Hostname   string
 	LogoutURL  string
 	UserEmail  string
 	VMs        []exedev.VM
@@ -54,12 +55,19 @@ templ AdminVMs(data AdminVMsData) {
 				</div>
 				if data.Configured {
 					<div class="flex gap-2">
-						<form method="POST" action="/admin/vms/new">
-							@button.Button(button.Props{Type: button.TypeSubmit}) {
-								@icon.Plus(icon.Props{Size: 16})
-								<span class="ml-2">New VM</span>
+						@dropdown.Dropdown() {
+							@dropdown.Trigger() {
+								@button.Button(button.Props{}) {
+									@icon.Plus(icon.Props{Size: 16})
+									<span class="ml-2">New VM</span>
+								}
 							}
-						</form>
+							@dropdown.Content(dropdown.ContentProps{Attributes: templ.Attributes{"style": "width:14rem"}, Placement: dropdown.PlacementBottomEnd}) {
+								@newVMDropdownItem("app", "App")
+								@newVMDropdownItem("go-template", "Go Template")
+							}
+						}
+						@instructVMDialog()
 						<form method="POST" action="/admin/browser-link" target="_blank">
 							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline}) {
 								@icon.ExternalLink(icon.Props{Size: 16})
@@ -69,6 +77,7 @@ templ AdminVMs(data AdminVMsData) {
 					</div>
 				}
 			</div>
+			@instructVMScript(data.Hostname)
 			if !data.Configured {
 				@card.Card() {
 					@card.Content() {
@@ -274,4 +283,155 @@ templ adminVMItem(vm exedev.VM) {
 			}
 		</div>
 	</div>
+}
+
+templ newVMDropdownItem(app, label string) {
+	<form method="POST" action="/admin/vms/new">
+		<input type="hidden" name="app" value={ app }/>
+		@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": "this.closest('form').submit()"}}) {
+			<span class="flex items-center gap-2">
+				@icon.Server(icon.Props{Size: 14})
+				{ label }
+			</span>
+		}
+	</form>
+}
+
+templ instructVMDialog() {
+	@dialog.Dialog(dialog.Props{ID: "instruct-vm-dialog"}) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{Variant: button.VariantOutline, Attributes: templ.Attributes{"onclick": "openInstructDialog()"}}) {
+				@icon.Terminal(icon.Props{Size: 16})
+				<span class="ml-2">Instruct VM</span>
+			}
+		}
+		@dialog.Content(dialog.ContentProps{Class: "max-w-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					VM Instructions
+				}
+				@dialog.Description() {
+					Paste these instructions <a href="https://exe.dev/new" target="_blank" class="inline-flex items-center gap-0.5 underline hover:text-foreground">to a new VM<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a>.
+				}
+			}
+			<div class="space-y-4 mt-4">
+				<div class="space-y-2">
+					<label class="text-sm font-medium">App</label>
+					<div class="flex gap-4">
+						<label class="flex items-center gap-2 cursor-pointer">
+							<input type="radio" name="instruct-app" value="app" checked class="h-4 w-4 accent-primary" onchange="updateInstructions()"/>
+							<span class="text-sm">App</span>
+						</label>
+						<label class="flex items-center gap-2 cursor-pointer">
+							<input type="radio" name="instruct-app" value="go-template" class="h-4 w-4 accent-primary" onchange="updateInstructions()"/>
+							<span class="text-sm">Go Template</span>
+						</label>
+					</div>
+				</div>
+				<div class="grid grid-cols-2 gap-4">
+					<div class="space-y-2">
+						<label for="instruct-app-branch" class="text-sm font-medium">app branch</label>
+						<input id="instruct-app-branch" type="text" value="main" class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring" oninput="updateInstructions()"/>
+					</div>
+					<div class="space-y-2">
+						<label for="instruct-gt-branch" class="text-sm font-medium">go-template branch</label>
+						<input id="instruct-gt-branch" type="text" value="main" class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring" oninput="updateInstructions()"/>
+					</div>
+				</div>
+				<div id="instruct-vm-content">
+					<div class="flex items-center justify-center py-8 text-muted-foreground">
+						<span>Generating token...</span>
+					</div>
+				</div>
+			</div>
+			@dialog.Footer() {
+				@button.Button(button.Props{
+					Variant:    button.VariantOutline,
+					Attributes: templ.Attributes{"onclick": "copyVMInstructions()"},
+				}) {
+					@icon.Copy(icon.Props{Size: 16})
+					<span class="ml-2" id="instruct-copy-btn-text">Copy</span>
+				}
+				@dialog.Close() {
+					@button.Button(button.Props{}) {
+						Close
+					}
+				}
+			}
+		}
+	}
+}
+
+script instructVMScript(hostname string) {
+	window._instructHostname = hostname;
+	window._instructToken = null;
+	window._shaCache = {};
+	window._updateTimer = null;
+
+	window.openInstructDialog = async function() {
+		const el = document.getElementById('instruct-vm-content');
+		el.innerHTML = '<div class="flex items-center justify-center py-8 text-muted-foreground"><span>Generating token...</span></div>';
+		document.getElementById('instruct-copy-btn-text').textContent = 'Copy';
+
+		try {
+			const resp = await fetch('/admin/clients/registration-token', { method: 'POST' });
+			if (!resp.ok) throw new Error('Failed to generate token');
+			const data = await resp.json();
+			window._instructToken = data.token;
+			window._shaCache = {};
+			updateInstructions();
+		} catch (err) {
+			el.innerHTML = '<div class="text-destructive py-4">Failed to generate token: ' + err.message + '</div>';
+		}
+	}
+
+	async function resolveSHA(repo, branch) {
+		const key = repo + '@' + branch;
+		if (window._shaCache[key]) return window._shaCache[key];
+		try {
+			const resp = await fetch('/admin/resolve-branch?repo=' + encodeURIComponent(repo) + '&branch=' + encodeURIComponent(branch));
+			if (!resp.ok) return null;
+			const data = await resp.json();
+			if (data.sha) window._shaCache[key] = data.sha;
+			return data.sha || null;
+		} catch { return null; }
+	}
+
+	window.updateInstructions = function() {
+		if (!window._instructToken) return;
+		clearTimeout(window._updateTimer);
+		window._updateTimer = setTimeout(doUpdate, 300);
+	}
+
+	async function doUpdate() {
+		const app = document.querySelector('input[name="instruct-app"]:checked')?.value || 'app';
+		const gtBranch = document.getElementById('instruct-gt-branch')?.value.trim() || 'main';
+		const appBranch = document.getElementById('instruct-app-branch')?.value.trim() || 'main';
+		const origin = window._instructHostname;
+		const registerURL = origin.replace('://', '://' + window._instructToken + '@') + '/register';
+		const repo = 'housecat-inc/' + app;
+
+		const gtSHA = await resolveSHA('housecat-inc/go-template', gtBranch);
+		const gtRef = gtSHA ? gtSHA.substring(0, 12) : gtBranch;
+
+		const lines = 'go install github.com/housecat-inc/go-template/cmd/register@' + gtRef
+			+ '\n~/go/bin/register ' + registerURL + ' ' + repo + '@' + appBranch;
+
+		window._vmInstructions = lines;
+
+		const el = document.getElementById('instruct-vm-content');
+		let html = '<pre class="text-xs bg-muted p-4 rounded-lg overflow-auto max-h-80 whitespace-pre-wrap break-words">' + lines.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+		if (!gtSHA && gtBranch !== 'main') {
+			html += '<p class="text-xs text-destructive mt-1">Could not resolve go-template branch \u201c' + gtBranch + '\u201d</p>';
+		}
+		el.innerHTML = html;
+	}
+
+	window.copyVMInstructions = function() {
+		if (window._vmInstructions) {
+			navigator.clipboard.writeText(window._vmInstructions);
+			document.getElementById('instruct-copy-btn-text').textContent = 'Copied!';
+			setTimeout(() => { document.getElementById('instruct-copy-btn-text').textContent = 'Copy'; }, 2000);
+		}
+	}
 }

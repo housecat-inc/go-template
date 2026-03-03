@@ -95,6 +95,7 @@ func (s *Server) HandleAdminVMs(c echo.Context) error {
 		Activities: activities,
 		Configured: s.ExeDev != nil,
 		Error:      vmErr,
+		Hostname:   s.issuerURL(r),
 		LogoutURL:  logoutURL,
 		UserEmail:  userEmail,
 		VMs:        vms,
@@ -141,6 +142,14 @@ func (s *Server) HandleAdminNewVM(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "exe.dev client not configured")
 	}
 
+	app := c.FormValue("app")
+	if app == "" {
+		app = "go-template"
+	}
+	if app != "go-template" && app != "app" {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid app")
+	}
+
 	token, _, err := s.createRegistrationToken(ctx, userID)
 	if err != nil {
 		return err
@@ -149,26 +158,27 @@ func (s *Server) HandleAdminNewVM(c echo.Context) error {
 	q := dbgen.New(s.DB)
 
 	vmName := GenerateName()
-	slog.Info("creating vm", "name", vmName, "user", userEmail)
+	slog.Info("creating vm", "name", vmName, "app", app, "user", userEmail)
 
 	result, err := s.ExeDev.CreateVM(ctx, vmName)
 	if err != nil {
 		return errors.Wrap(err, "create vm")
 	}
 
-	slog.Info("vm created", "name", result.Name, "user", userEmail)
+	slog.Info("vm created", "name", result.Name, "app", app, "user", userEmail)
 
+	meta := userEmail + " (" + app + ")"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 		ActorID:    userID,
 		ActorType:  "user",
 		Action:     "created_vm",
 		ObjectID:   result.Name,
 		ObjectType: "vm",
-		Metadata:   &userEmail,
+		Metadata:   &meta,
 	})
 
 	issue := s.issuerURL(r)
-	prompt := buildVMPrompt(issue, token)
+	prompt := buildVMPrompt(issue, token, app)
 
 	s.vmSetups.Store(result.Name, &vmSetup{ShelleyURL: result.ShelleyURL})
 
@@ -234,7 +244,7 @@ func vmSetupPage(name string) string {
 </head>
 <body class="bg-background text-foreground min-h-screen flex items-center justify-center">
 	<div class="text-center space-y-4">
-		<div class="text-6xl">🐱</div>
+		<div class="text-6xl">🐈</div>
 		<h1 class="text-2xl font-bold">Setting up ` + name + `</h1>
 		<p class="text-muted-foreground">Waiting for the agent to start&hellip;</p>
 		<div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-current border-r-transparent"></div>
@@ -297,22 +307,44 @@ func (s *Server) HandleAdminDeleteVM(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/admin/vms")
 }
 
-func buildVMPrompt(issuerURL, token string) string {
+func buildVMPrompt(issuerURL, token, app string) string {
 	u, _ := url.Parse(issuerURL)
 	u.User = url.User(token)
 	registerURL := u.String() + "/register"
-	return fmt.Sprintf(`Clone and register this VM:
+	repo := "housecat-inc/" + app
 
-git clone -b main https://github.com/housecat-inc/go-template go-template
-cd go-template
-go run ./cmd/register %s
+	return fmt.Sprintf(`Register this VM and set up the app:
+
+go install github.com/housecat-inc/go-template/cmd/register@main
+~/go/bin/register %s %s@main
 
 This will:
 1. Register this VM as an OIDC client with the auth service
-2. Download the git proxy CA certificate
-3. Configure git and gh to use the git proxy for GitHub access
-4. Write a .env file with OIDC credentials
+2. Set up the git proxy for GitHub access
+3. Clone %s (main branch) into ~/%s
+4. Build and install the service
+5. Write .env and start the systemd service
 
 After running, restart your shell to pick up the proxy environment variables.
-`, registerURL)
+`, registerURL, repo, repo, app)
+}
+
+func (s *Server) HandleResolveBranch(c echo.Context) error {
+	repo := c.QueryParam("repo")
+	branch := c.QueryParam("branch")
+	if repo == "" || branch == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "repo and branch required")
+	}
+
+	if s.GitProxy == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "git proxy not configured")
+	}
+
+	ctx := c.Request().Context()
+	sha, err := s.GitProxy.ResolveBranch(ctx, repo, branch)
+	if err != nil {
+		slog.Warn("resolve branch", "repo", repo, "branch", branch, "error", err)
+		return c.JSON(http.StatusOK, map[string]string{"sha": ""})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"sha": sha})
 }

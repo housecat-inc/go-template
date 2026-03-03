@@ -2,7 +2,9 @@ package gh
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -235,5 +237,76 @@ func isPushRequest(path, service string) bool {
 		return true
 	}
 	return false
+}
+
+func (p *Proxy) ResolveBranch(ctx context.Context, repo, branch string) (string, error) {
+	token, err := p.TokenSource.Token(ctx)
+	if err != nil {
+		return "", errors.Wrap(err, "get token")
+	}
+
+	url := fmt.Sprintf("https://api.github.com/repos/%s/branches/%s", repo, branch)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", errors.Wrap(err, "create request")
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := p.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", errors.Wrap(err, "api request")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", errors.Newf("branch %q not found in %s (status %d)", branch, repo, resp.StatusCode)
+	}
+
+	var result struct {
+		Commit struct {
+			SHA string `json:"sha"`
+		} `json:"commit"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", errors.Wrap(err, "decode response")
+	}
+	return result.Commit.SHA, nil
+}
+
+func (p *Proxy) HandleToken(w http.ResponseWriter, r *http.Request) {
+	user, pass, ok := r.BasicAuth()
+	if !ok {
+		http.Error(w, "basic auth required", http.StatusUnauthorized)
+		return
+	}
+
+	if p.PolicyStore == nil {
+		http.Error(w, "no policy store configured", http.StatusInternalServerError)
+		return
+	}
+
+	policy, err := p.PolicyStore.Lookup(r.Context(), user+":"+pass)
+	if err != nil {
+		http.Error(w, "forbidden: "+err.Error(), http.StatusForbidden)
+		return
+	}
+
+	if err := policy.CheckAPI(http.MethodGet, "/"); err != nil {
+		http.Error(w, "forbidden: "+err.Error(), http.StatusForbidden)
+		return
+	}
+
+	token, err := p.TokenSource.Token(r.Context())
+	if err != nil {
+		http.Error(w, "get token: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = fmt.Fprintf(w, `{"token":%q}`, token)
 }
 

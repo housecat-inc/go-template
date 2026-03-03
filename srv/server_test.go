@@ -50,13 +50,13 @@ func TestServerSetupAndHandlers(t *testing.T) {
 		a.Contains(w.Body.String(), "Sign in")
 	})
 
-	t.Run("home unauthenticated redirects to /", func(t *testing.T) {
+	t.Run("profile unauthenticated redirects to /", func(t *testing.T) {
 		a := assert.New(t)
-		req := httptest.NewRequest(http.MethodGet, "/home", nil)
+		req := httptest.NewRequest(http.MethodGet, "/profile", nil)
 		w := httptest.NewRecorder()
 		c := e.NewContext(req, w)
 
-		handler := server.RequireAuth(server.HandleHome)
+		handler := server.RequireAuth(server.HandleProfile)
 		r := require.New(t)
 		r.NoError(handler(c))
 
@@ -64,15 +64,15 @@ func TestServerSetupAndHandlers(t *testing.T) {
 		a.Equal("/", w.Header().Get("Location"))
 	})
 
-	t.Run("home authenticated shows welcome page", func(t *testing.T) {
+	t.Run("profile authenticated shows welcome page", func(t *testing.T) {
 		a := assert.New(t)
-		req := httptest.NewRequest(http.MethodGet, "/home", nil)
+		req := httptest.NewRequest(http.MethodGet, "/profile", nil)
 		req.Header.Set("X-ExeDev-UserID", "user123")
 		req.Header.Set("X-ExeDev-Email", "test@example.com")
 		w := httptest.NewRecorder()
 		c := e.NewContext(req, w)
 
-		handler := server.RequireAuth(server.HandleHome)
+		handler := server.RequireAuth(server.HandleProfile)
 		r := require.New(t)
 		r.NoError(handler(c))
 
@@ -86,19 +86,19 @@ func TestServerSetupAndHandlers(t *testing.T) {
 		a := assert.New(t)
 		r := require.New(t)
 
-		req1 := httptest.NewRequest(http.MethodGet, "/home", nil)
+		req1 := httptest.NewRequest(http.MethodGet, "/profile", nil)
 		req1.Header.Set("X-ExeDev-UserID", "counter-test")
 		w1 := httptest.NewRecorder()
 		c1 := e.NewContext(req1, w1)
-		handler := server.RequireAuth(server.HandleHome)
+		handler := server.RequireAuth(server.HandleProfile)
 		r.NoError(handler(c1))
 		a.Contains(w1.Body.String(), ">1<")
 
-		req2 := httptest.NewRequest(http.MethodGet, "/home", nil)
+		req2 := httptest.NewRequest(http.MethodGet, "/profile", nil)
 		req2.Header.Set("X-ExeDev-UserID", "counter-test")
 		w2 := httptest.NewRecorder()
 		c2 := e.NewContext(req2, w2)
-		handler2 := server.RequireAuth(server.HandleHome)
+		handler2 := server.RequireAuth(server.HandleProfile)
 		r.NoError(handler2(c2))
 		a.Contains(w2.Body.String(), ">2<")
 	})

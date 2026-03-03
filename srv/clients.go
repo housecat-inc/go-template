@@ -30,12 +30,9 @@ func (s *Server) HandleClients(c echo.Context) error {
 
 	count, _ := q.CountOidcClients(ctx)
 
-	origin := s.issuerURL(r)
-
 	data := pages.ClientsListData{
 		ClientCount:  count,
 		Clients:      clients,
-		Hostname:  origin,
 		LogoutURL: logoutURL,
 		UserEmail: userEmail,
 	}

@@ -94,11 +94,15 @@ func TestOIDCDiscovery(t *testing.T) {
 func TestBuildVMPrompt(t *testing.T) {
 	a := assert.New(t)
 
-	prompt := buildVMPrompt("https://auth.example.com", "my-token")
+	prompt := buildVMPrompt("https://auth.example.com", "my-token", "go-template")
 	a.Contains(prompt, "https://my-token@auth.example.com/register")
-	a.Contains(prompt, "go run ./cmd/register")
-	a.Contains(prompt, "clone -b main")
+	a.Contains(prompt, "go install github.com/housecat-inc/go-template/cmd/register@main")
+	a.Contains(prompt, "housecat-inc/go-template@main")
+	a.Contains(prompt, "~/go-template")
 
-	prompt = buildVMPrompt("http://localhost:8000", "tok")
+	prompt = buildVMPrompt("http://localhost:8000", "tok", "app")
 	a.Contains(prompt, "http://tok@localhost:8000/register")
+	a.Contains(prompt, "go install github.com/housecat-inc/go-template/cmd/register@main")
+	a.Contains(prompt, "register http://tok@localhost:8000/register housecat-inc/app@main")
+	a.Contains(prompt, "~/app")
 }

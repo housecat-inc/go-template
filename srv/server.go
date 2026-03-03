@@ -21,6 +21,7 @@ import (
 	"github.com/housecat-inc/auth/db"
 	"github.com/housecat-inc/auth/db/dbgen"
 	"github.com/housecat-inc/auth/exedev"
+	"github.com/housecat-inc/auth/gh"
 	hcoidc "github.com/housecat-inc/auth/oidc"
 	"github.com/housecat-inc/auth/ui/blocks/auth"
 	"github.com/housecat-inc/auth/ui/pages"
@@ -32,11 +33,11 @@ type vmSetup struct {
 }
 
 type Server struct {
-	DB            *sql.DB
-	ExeDev        *exedev.Client
-	GitProxy   http.Handler
-	Hostname   string
-	OAuth         OAuthConfig
+	DB                *sql.DB
+	ExeDev            *exedev.Client
+	GitProxy *gh.Proxy
+	Hostname          string
+	OAuth             OAuthConfig
 	oauth2Config  *oauth2.Config
 	googleOIDC    *googleoidc.Provider
 	oidcOP        op.OpenIDProvider
@@ -97,7 +98,7 @@ func (s *Server) Serve(addr string) error {
 	e.HidePort = true
 
 	e.GET("/", s.HandleRoot)
-	e.GET("/home", s.HandleHome, s.RequireAuth)
+	e.GET("/profile", s.HandleProfile, s.RequireAuth)
 	e.GET("/auth/exedev", s.HandleAuthExeDev)
 	if s.oauth2Config != nil {
 		e.GET("/auth/google", s.HandleAuthGoogle)
@@ -112,6 +113,7 @@ func (s *Server) Serve(addr string) error {
 	admin.GET("/vms/:name/setup/status", s.HandleAdminVMSetupStatus)
 	admin.POST("/vms/:name/delete", s.HandleAdminDeleteVM)
 	admin.POST("/browser-link", s.HandleAdminBrowserLink)
+	admin.GET("/resolve-branch", s.HandleResolveBranch)
 
 	clients := admin.Group("/clients")
 	clients.GET("", s.HandleClients)
@@ -131,6 +133,7 @@ func (s *Server) Serve(addr string) error {
 		gp := echo.WrapHandler(s.GitProxy)
 		e.Any("/github.com/*", gp)
 		e.Any("/api.github.com/*", gp)
+		e.GET("/gh/token", echo.WrapHandler(http.HandlerFunc(s.GitProxy.HandleToken)))
 	}
 
 	// OIDC login callback (the OP redirects here for user authentication)
@@ -167,11 +170,11 @@ func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
 
 	if isLoopback(r) {
-		return c.Redirect(http.StatusFound, "/home")
+		return c.Redirect(http.StatusFound, "/admin/vms")
 	}
 
 	if _, err := s.getSession(r); err == nil {
-		return c.Redirect(http.StatusFound, "/home")
+		return c.Redirect(http.StatusFound, "/admin/vms")
 	}
 
 	redirect := c.QueryParam("redirect")
@@ -192,7 +195,7 @@ func (s *Server) HandleRoot(c echo.Context) error {
 	return component.Render(r.Context(), c.Response())
 }
 
-func (s *Server) HandleHome(c echo.Context) error {
+func (s *Server) HandleProfile(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
 	userID := c.Get("userID").(string)
@@ -259,7 +262,7 @@ func (s *Server) HandleHome(c echo.Context) error {
 		UserID:        userID,
 	}
 
-	component := pages.Home(data, isAdminWithProvider(userEmail, provider))
+	component := pages.Profile(data, isAdminWithProvider(userEmail, provider))
 	return component.Render(ctx, c.Response())
 }
 
