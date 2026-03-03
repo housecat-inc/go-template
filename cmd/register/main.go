@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -148,26 +149,27 @@ func cloneAndBuild(repo, repoName, branch string) error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("git fetch: %w", err)
 		}
+		fmt.Printf("==> Checking out %s...\n", branch)
+		checkout := exec.Command("git", "checkout", branch)
+		checkout.Dir = dir
+		checkout.Stdout = os.Stdout
+		checkout.Stderr = os.Stderr
+		if err := checkout.Run(); err != nil {
+			return fmt.Errorf("git checkout %s: %w", branch, err)
+		}
 	} else {
-		fmt.Printf("==> Cloning %s...\n", repo)
-		if err := shell("git", "clone", "https://github.com/"+repo+".git", dir); err != nil {
+		fmt.Printf("==> Cloning %s (shallow, branch %s)...\n", repo, branch)
+		if err := shell("git", "clone", "--depth", "1", "--branch", branch,
+			"https://github.com/"+repo+".git", dir); err != nil {
 			return fmt.Errorf("git clone: %w", err)
 		}
-	}
-
-	fmt.Printf("==> Checking out %s...\n", branch)
-	checkout := exec.Command("git", "checkout", branch)
-	checkout.Dir = dir
-	checkout.Stdout = os.Stdout
-	checkout.Stderr = os.Stderr
-	if err := checkout.Run(); err != nil {
-		return fmt.Errorf("git checkout %s: %w", branch, err)
 	}
 
 	return serviceSetup(dir)
 }
 
 func serviceSetup(dir string) error {
+	// Install tailwindcss if needed
 	if _, err := exec.LookPath("tailwindcss"); err != nil {
 		fmt.Println("==> Installing tailwindcss...")
 		if err := shell("bash", "-c", "curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/download/v4.2.1/tailwindcss-linux-x64 && chmod +x tailwindcss-linux-x64 && sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss"); err != nil {
@@ -177,15 +179,89 @@ func serviceSetup(dir string) error {
 		fmt.Println("==> tailwindcss already installed")
 	}
 
-	fmt.Printf("==> Running make install in %s...\n", dir)
-	cmd := exec.Command("make", "install")
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("make install: %w", err)
+	// Download modules first so generators and build don't block on network
+	fmt.Println("==> Downloading Go modules...")
+	dl := exec.Command("go", "mod", "download")
+	dl.Dir = dir
+	dl.Stdout = os.Stdout
+	dl.Stderr = os.Stderr
+	if err := dl.Run(); err != nil {
+		return fmt.Errorf("go mod download: %w", err)
 	}
 
+	// Run generators in parallel (templ, sqlc, tailwindcss are independent)
+	fmt.Println("==> Running generators in parallel...")
+	type generator struct {
+		name string
+		cmd  *exec.Cmd
+	}
+	gens := []generator{
+		{"templ", dirCmd(filepath.Join(dir, "ui"), "go", "tool", "templ", "generate")},
+		{"sqlc", dirCmd(filepath.Join(dir, "db"), "go", "tool", "github.com/sqlc-dev/sqlc/cmd/sqlc", "generate")},
+		{"tailwindcss", dirCmd(filepath.Join(dir, "assets"), "tailwindcss", "-i", "css/input.css", "-o", "css/output.css", "--minify")},
+	}
+
+	var mu sync.Mutex
+	var errs []error
+	var wg sync.WaitGroup
+	for _, g := range gens {
+		wg.Add(1)
+		go func(g generator) {
+			defer wg.Done()
+			start := time.Now()
+			out, err := g.cmd.CombinedOutput()
+			mu.Lock()
+			defer mu.Unlock()
+			if len(out) > 0 {
+				fmt.Printf("    [%s] %s", g.name, out)
+			}
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", g.name, err))
+			} else {
+				fmt.Printf("    [%s] done (%s)\n", g.name, time.Since(start).Round(time.Millisecond))
+			}
+		}(g)
+	}
+	wg.Wait()
+	if len(errs) > 0 {
+		return fmt.Errorf("generate failed: %v", errs)
+	}
+
+	// Build
+	fmt.Println("==> Building...")
+	build := dirCmd(dir, "go", "build", "-o", "bin/srv", "./cmd/srv")
+	build.Stdout = os.Stdout
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("go build: %w", err)
+	}
+
+	// Install binary
+	fmt.Println("==> Installing binary...")
+	for _, args := range [][]string{
+		{"mkdir", "-p", "/opt/srv/bin", "/opt/srv/data"},
+		{"rm", "-f", "/opt/srv/bin/srv"},
+		{"cp", filepath.Join(dir, "bin/srv"), "/opt/srv/bin/srv"},
+		{"chown", "root:root", "/opt/srv/bin/srv"},
+		{"chmod", "0755", "/opt/srv/bin/srv"},
+		{"chown", "-R", "exedev:exedev", "/opt/srv/data"},
+		{"chmod", "0700", "/opt/srv/data"},
+	} {
+		if err := sudo(args...); err != nil {
+			return fmt.Errorf("install: %w", err)
+		}
+	}
+
+	// Copy .env if it exists
+	home, _ := os.UserHomeDir()
+	envFile := filepath.Join(home, ".env")
+	if _, err := os.Stat(envFile); err == nil {
+		_ = sudo("cp", envFile, "/opt/srv/data/.env")
+		_ = sudo("chown", "exedev:exedev", "/opt/srv/data/.env")
+		_ = sudo("chmod", "0600", "/opt/srv/data/.env")
+	}
+
+	// Install systemd unit
 	fmt.Println("==> Installing systemd unit...")
 	svcFile := filepath.Join(dir, "srv.service")
 	if err := sudo("cp", svcFile, "/etc/systemd/system/srv.service"); err != nil {
@@ -199,6 +275,13 @@ func serviceSetup(dir string) error {
 	}
 
 	return nil
+}
+
+// dirCmd creates an exec.Cmd that runs in the given directory.
+func dirCmd(dir, name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	return cmd
 }
 
 type clientMetadata struct {
