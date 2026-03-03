@@ -3,6 +3,8 @@ name: db
 description: Database workflow — Conventions and sqlite tools
 ---
 
+For SQL migrations and queries sort tables and columns lexigraphically when possible.
+
 For IDs use `INTEGER PRIMARY KEY`. 
 
 For timestamps use `TIMESTAMP` and `NOT NULL` and `DEFAULT CURRENT_TIMESTAMP` where applicable. Track `created_at`, `updated_at`, `archived_at`, `trashed_at`.
