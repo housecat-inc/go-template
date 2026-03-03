@@ -48,6 +48,11 @@ func run() error {
 		gh.Stdin = os.Stdin
 		gh.Stdout = os.Stdout
 		gh.Stderr = os.Stderr
+		if os.Getenv("GH_REPO") == "" {
+			if repo := repoFromRemote(); repo != "" {
+				gh.Env = append(os.Environ(), "GH_REPO="+repo)
+			}
+		}
 		if err := gh.Run(); err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				os.Exit(exitErr.ExitCode())
@@ -77,6 +82,29 @@ func findRealGH() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("could not find real gh binary in PATH")
+}
+
+func repoFromRemote() string {
+	out, err := exec.Command("git", "config", "--get", "remote.origin.url").Output()
+	if err != nil {
+		return ""
+	}
+	remoteURL := strings.TrimSpace(string(out))
+
+	// Extract owner/repo from https://github.com/owner/repo.git
+	remoteURL = strings.TrimSuffix(remoteURL, ".git")
+	const prefix = "https://github.com/"
+	if strings.HasPrefix(remoteURL, prefix) {
+		return strings.TrimPrefix(remoteURL, prefix)
+	}
+
+	// SSH: git@github.com:owner/repo.git
+	const sshPrefix = "git@github.com:"
+	if strings.HasPrefix(remoteURL, sshPrefix) {
+		return strings.TrimPrefix(remoteURL, sshPrefix)
+	}
+
+	return ""
 }
 
 func getToken() (string, error) {
