@@ -48,6 +48,14 @@ func run() error {
 		gh.Stdin = os.Stdin
 		gh.Stdout = os.Stdout
 		gh.Stderr = os.Stderr
+		// If GH_REPO isn't set, try to detect it from the git proxy remote URL.
+		// The origin remote looks like https://...@proxy-host/github.com/org/repo.git
+		// and gh doesn't recognize the proxy host as GitHub.
+		if os.Getenv("GH_REPO") == "" {
+			if repo := detectRepoFromProxy(); repo != "" {
+				gh.Env = append(os.Environ(), "GH_REPO="+repo)
+			}
+		}
 		if err := gh.Run(); err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				os.Exit(exitErr.ExitCode())
@@ -57,6 +65,30 @@ func run() error {
 	}
 
 	return nil
+}
+
+// detectRepoFromProxy extracts "org/repo" from a git proxy remote URL.
+// The origin remote looks like https://...@proxy-host/github.com/org/repo.git
+func detectRepoFromProxy() string {
+	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+	if err != nil {
+		return ""
+	}
+	remoteURL := strings.TrimSpace(string(out))
+	// Look for /github.com/org/repo in the URL
+	const marker = "/github.com/"
+	idx := strings.Index(remoteURL, marker)
+	if idx < 0 {
+		return ""
+	}
+	repo := remoteURL[idx+len(marker):]
+	repo = strings.TrimSuffix(repo, ".git")
+	repo = strings.TrimSuffix(repo, "/")
+	// Validate it looks like org/repo
+	if strings.Count(repo, "/") != 1 {
+		return ""
+	}
+	return repo
 }
 
 func findRealGH() (string, error) {
