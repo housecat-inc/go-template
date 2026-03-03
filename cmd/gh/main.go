@@ -80,10 +80,46 @@ func findRealGH() (string, error) {
 }
 
 func getToken() (string, error) {
+	// Try GH_PROXY_URL env var first (for backwards compatibility)
 	if proxyURL := os.Getenv("GH_PROXY_URL"); proxyURL != "" {
 		return getTokenFromProxy(proxyURL)
 	}
+
+	// Parse proxy URL from git config url.*.insteadOf
+	if proxyURL, err := getProxyFromGitConfig(); err == nil && proxyURL != "" {
+		return getTokenFromProxy(proxyURL)
+	}
+
 	return getTokenDirect()
+}
+
+func getProxyFromGitConfig() (string, error) {
+	cmd := exec.Command("git", "config", "--get-regexp", "^url\\..*\\.insteadof$")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	// Parse output like:
+	// url.https://client:secret@host/github.com/.insteadof https://github.com/
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		// Extract the URL from url.https://...@host/github.com/.insteadof
+		key := fields[0]
+		if !strings.HasSuffix(key, "/github.com/.insteadof") {
+			continue
+		}
+		// Extract URL from key: url.<URL>.insteadof
+		url := strings.TrimPrefix(key, "url.")
+		url = strings.TrimSuffix(url, ".insteadof")
+		url = strings.TrimSuffix(url, "/github.com/")
+		return url, nil
+	}
+
+	return "", fmt.Errorf("no github.com insteadOf found in git config")
 }
 
 func getTokenFromProxy(proxyURL string) (string, error) {

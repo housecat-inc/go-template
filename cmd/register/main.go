@@ -7,26 +7,58 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
+var logger *slog.Logger
+
 func main() {
+	// Set up logging to both stdout and /var/log/register.log
+	logFile, err := os.OpenFile("/var/log/register.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// Fall back to stdout only if log file can't be opened
+		fmt.Fprintf(os.Stderr, "WARNING: cannot open /var/log/register.log: %v\n", err)
+		logFile = nil
+	}
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
+	var output io.Writer = os.Stdout
+	if logFile != nil {
+		output = io.MultiWriter(os.Stdout, logFile)
+	}
+
+	logger = slog.New(slog.NewJSONHandler(output, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	start := time.Now()
+	logger.Info("registration started")
+
 	if err := run(); err != nil {
+		logger.Error("registration failed", "error", err, "duration", time.Since(start))
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		os.Exit(1)
 	}
+
+	logger.Info("registration completed", "duration", time.Since(start))
 }
 
 func run() error {
+	stepStart := time.Now()
 	if len(os.Args) < 2 {
 		return fmt.Errorf("usage: register <register-url> [repo]\n  repo: GitHub org/name to clone and build (default: housecat-inc/go-template)")
 	}
 
+	logger.Info("parsing arguments")
 	u, err := url.Parse(os.Args[1])
 	if err != nil {
 		return fmt.Errorf("parse url: %w", err)
@@ -57,14 +89,18 @@ func run() error {
 		return fmt.Errorf("get hostname: %w", err)
 	}
 	appName, _, _ := strings.Cut(hostname, ".")
+	logger.Info("parsed arguments", "app", appName, "repo", repo, "branch", branch, "duration", time.Since(stepStart))
 
 	// Register client via RFC 7591
+	stepStart = time.Now()
 	clientID, clientSecret, scope, err := registerClient(token, endpoint, appName)
 	if err != nil {
 		return fmt.Errorf("register client: %w", err)
 	}
+	logger.Info("registered client", "client_id", clientID, "scope", scope, "duration", time.Since(stepStart))
 
 	// Generate session secret
+	stepStart = time.Now()
 	secretBytes := make([]byte, 32)
 	if _, err := rand.Read(secretBytes); err != nil {
 		return fmt.Errorf("generate session secret: %w", err)
@@ -72,29 +108,40 @@ func run() error {
 	sessionSecret := hex.EncodeToString(secretBytes)
 
 	// Set up git proxy if git scope was granted
+	stepStart = time.Now()
 	if hasScope(scope, "git") {
 		if err := setupGitProxy(issuer, clientID, clientSecret); err != nil {
+			logger.Warn("git proxy setup failed", "error", err)
 			fmt.Fprintf(os.Stderr, "WARNING: git proxy setup: %v\n", err)
+		} else {
+			logger.Info("git proxy configured", "duration", time.Since(stepStart))
 		}
 	} else {
 		fmt.Println("==> No git scope granted, skipping git proxy setup")
+		logger.Info("skipped git proxy", "reason", "no git scope")
 	}
 
 	// Clone and build the repo
+	stepStart = time.Now()
 	if err := cloneAndBuild(repo, repoName, branch); err != nil {
 		return fmt.Errorf("clone and build: %w", err)
 	}
+	logger.Info("cloned and built", "repo", repo, "branch", branch, "duration", time.Since(stepStart))
 
 	// Write .env
+	stepStart = time.Now()
 	if err := writeEnv(clientID, clientSecret, issuer, sessionSecret); err != nil {
 		return fmt.Errorf("write env: %w", err)
 	}
+	logger.Info("wrote environment file", "duration", time.Since(stepStart))
 
 	// Restart service
+	stepStart = time.Now()
 	fmt.Println("==> Restarting service...")
 	if err := sudo("systemctl", "restart", "srv"); err != nil {
 		return fmt.Errorf("restart service: %w", err)
 	}
+	logger.Info("restarted service", "duration", time.Since(stepStart))
 
 	fmt.Println("==> Done")
 	fmt.Printf("    App:       %s\n", appName)
@@ -293,15 +340,19 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	proxyBaseClean := "https://" + proxyHost
 
 	_ = shell("git", "config", "--global", "url."+proxyBase+"/github.com/.insteadOf", "https://github.com/")
+	_ = shell("git", "config", "--global", "user.name", "shelley-agent[bot]")
+	_ = shell("git", "config", "--global", "user.email", "2976885+shelley-agent[bot]@users.noreply.github.com")
 
-	ghProxyURL := "https://" + url.UserPassword(clientID, clientSecret).String() + "@" + proxyHost
 	gobin := filepath.Join(os.Getenv("HOME"), "go", "bin")
-	profileLines := fmt.Sprintf("\n# Housecat git proxy\nexport GH_PROXY_URL=%s\nexport PATH=%s:$PATH\n", ghProxyURL, gobin)
+	profileLines := fmt.Sprintf("\n# Housecat PATH\nexport PATH=%s:$PATH\n", gobin)
 
-	profile := filepath.Join(os.Getenv("HOME"), ".profile")
-	if f, err := os.OpenFile(profile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644); err == nil {
-		_, _ = f.WriteString(profileLines)
-		f.Close()
+	// Write to both .profile and .bashrc for login and interactive shells
+	for _, rcfile := range []string{".profile", ".bashrc"} {
+		path := filepath.Join(os.Getenv("HOME"), rcfile)
+		if f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644); err == nil {
+			_, _ = f.WriteString(profileLines)
+			f.Close()
+		}
 	}
 
 	fmt.Printf("    Proxy:       %s\n", proxyBaseClean)
