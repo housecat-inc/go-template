@@ -20,23 +20,7 @@ import (
 var logger *slog.Logger
 
 func main() {
-	// Set up logging to both stdout and /var/log/register.log
-	logFile, err := os.OpenFile("/var/log/register.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		// Fall back to stdout only if log file can't be opened
-		fmt.Fprintf(os.Stderr, "WARNING: cannot open /var/log/register.log: %v\n", err)
-		logFile = nil
-	}
-	if logFile != nil {
-		defer logFile.Close()
-	}
-
-	var output io.Writer = os.Stdout
-	if logFile != nil {
-		output = io.MultiWriter(os.Stdout, logFile)
-	}
-
-	logger = slog.New(slog.NewJSONHandler(output, &slog.HandlerOptions{
+	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 
