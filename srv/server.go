@@ -18,6 +18,10 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/housecat-inc/auth/assets"
+	hcmcp "github.com/housecat-inc/auth/mcp"
+	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
+	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"github.com/housecat-inc/auth/db"
 	"github.com/housecat-inc/auth/db/dbgen"
 	"github.com/housecat-inc/auth/exedev"
@@ -40,6 +44,7 @@ type Server struct {
 	OAuth             OAuthConfig
 	oauth2Config  *oauth2.Config
 	googleOIDC    *googleoidc.Provider
+	oidcCrypto    op.Crypto
 	oidcOP        op.OpenIDProvider
 	oidcStorage   *hcoidc.Storage
 	sessionSecret string
@@ -81,12 +86,13 @@ func (s *Server) setUpOIDCProvider(dbPath string) error {
 	}
 
 	keyPath := filepath.Join(filepath.Dir(dbPath), "oidc_signing.key")
-	provider, storage, err := hcoidc.NewProvider(issuer, s.DB, keyPath, s.sessionSecret)
+	provider, storage, crypto, err := hcoidc.NewProvider(issuer, s.DB, keyPath, s.sessionSecret)
 	if err != nil {
 		return errors.Wrap(err, "setup oidc provider")
 	}
 	s.oidcOP = provider
 	s.oidcStorage = storage
+	s.oidcCrypto = crypto
 
 	slog.Info("oidc provider initialized", "issuer", issuer)
 	return nil
@@ -125,7 +131,8 @@ func (s *Server) Serve(addr string) error {
 	clients.POST("/:id", s.HandleClientsUpdate)
 	clients.POST("/:id/archive", s.HandleClientsArchive)
 
-	e.POST("/register", s.HandleRegister)
+	e.POST("/api/register", s.HandleRegister)
+	e.POST("/register", s.HandleMCPRegister)
 
 	e.GET("/gitproxy/ca.crt", s.HandleGitProxyProbe)
 
@@ -145,8 +152,19 @@ func (s *Server) Serve(addr string) error {
 		return sess.UserID, sess.Email, nil
 	}))
 
+	// OAuth Protected Resource Metadata (RFC 9728) for MCP
+	issuerURL := "https://" + s.Hostname
+	prmMetadata := &oauthex.ProtectedResourceMetadata{
+		Resource:             issuerURL + "/mcp",
+		AuthorizationServers: []string{issuerURL},
+		ScopesSupported:      []string{"openid", "email", "profile"},
+	}
+	e.Any("/.well-known/oauth-protected-resource", echo.WrapHandler(mcpauth.ProtectedResourceMetadataHandler(prmMetadata)))
+	e.Any("/.well-known/oauth-protected-resource/*", echo.WrapHandler(mcpauth.ProtectedResourceMetadataHandler(prmMetadata)))
+
 	// Mount the zitadel OIDC provider handler for all OIDC endpoints
 	oidcHandler := s.oidcOP
+	e.GET("/.well-known/openid-configuration", s.handleDiscoveryWithRegistration(oidcHandler))
 	e.Any("/.well-known/*", echo.WrapHandler(oidcHandler))
 	e.Any("/authorize", echo.WrapHandler(oidcHandler))
 	e.Any("/authorize/*", echo.WrapHandler(oidcHandler))
@@ -158,6 +176,17 @@ func (s *Server) Serve(addr string) error {
 	e.Any("/healthz", echo.WrapHandler(oidcHandler))
 	e.Any("/ready", echo.WrapHandler(oidcHandler))
 	e.Any("/device_authorization", echo.WrapHandler(oidcHandler))
+
+	mcpServer := hcmcp.NewServer()
+	mcpHandler := gomcp.NewStreamableHTTPHandler(func(req *http.Request) *gomcp.Server {
+		return mcpServer
+	}, &gomcp.StreamableHTTPOptions{
+		DisableLocalhostProtection: true,
+	})
+	mcpAuth := mcpauth.RequireBearerToken(s.verifyMCPToken, &mcpauth.RequireBearerTokenOptions{
+		ResourceMetadataURL: issuerURL + "/.well-known/oauth-protected-resource",
+	})
+	e.Any("/mcp", echo.WrapHandler(mcpAuth(mcpHandler)))
 
 	assetHandler := http.FileServer(http.FS(assets.FS))
 	e.GET("/assets/*", echo.WrapHandler(http.StripPrefix("/assets", assetHandler)))
