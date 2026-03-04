@@ -204,7 +204,7 @@ func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientS
 }
 
 func (s *Storage) SetUserinfoFromScopes(ctx context.Context, userinfo *oidc.UserInfo, userID, clientID string, scopes []string) error {
-	email := s.lookupEmail(ctx, userID, clientID)
+	email := s.LookupEmail(ctx, userID, clientID)
 	return s.setUserinfo(userinfo, userID, email, scopes)
 }
 
@@ -213,7 +213,7 @@ func (s *Storage) SetUserinfoFromToken(ctx context.Context, userinfo *oidc.UserI
 	if err != nil {
 		return errors.Wrap(err, "get access token")
 	}
-	email := s.lookupEmail(ctx, token.Subject, token.ApplicationID)
+	email := s.LookupEmail(ctx, token.Subject, token.ApplicationID)
 	return s.setUserinfo(userinfo, token.Subject, email, splitComma(token.Scopes))
 }
 
@@ -254,7 +254,7 @@ func (s *Storage) CompleteAuthRequest(ctx context.Context, id, userID, email str
 	})
 }
 
-func (s *Storage) lookupEmail(ctx context.Context, userID, clientID string) string {
+func (s *Storage) LookupEmail(ctx context.Context, userID, clientID string) string {
 	row, err := s.q().GetLatestAuthRequestByUserAndClient(ctx, dbgen.GetLatestAuthRequestByUserAndClientParams{
 		UserID:   userID,
 		ClientID: clientID,

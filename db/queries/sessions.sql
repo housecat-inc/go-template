@@ -15,3 +15,9 @@ DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP;
 -- name: CountSessionsByUser :one
 SELECT COUNT(*) FROM sessions
 WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP;
+
+-- name: GetEmailByUserID :one
+SELECT email FROM sessions
+WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP
+ORDER BY created_at DESC
+LIMIT 1;

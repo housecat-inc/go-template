@@ -310,7 +310,7 @@ func (s *Server) HandleAdminDeleteVM(c echo.Context) error {
 func buildVMPrompt(issuerURL, token, app string) string {
 	u, _ := url.Parse(issuerURL)
 	u.User = url.User(token)
-	registerURL := u.String() + "/register"
+	registerURL := u.String() + "/api/register"
 	repo := "housecat-inc/" + app
 
 	return fmt.Sprintf(`Register this VM and set up the app:

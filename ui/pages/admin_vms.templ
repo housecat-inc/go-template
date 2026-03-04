@@ -408,7 +408,7 @@ script instructVMScript(hostname string) {
 		const gtBranch = document.getElementById('instruct-gt-branch')?.value.trim() || 'main';
 		const appBranch = document.getElementById('instruct-app-branch')?.value.trim() || 'main';
 		const origin = window._instructHostname;
-		const registerURL = origin.replace('://', '://' + window._instructToken + '@') + '/register';
+		const registerURL = origin.replace('://', '://' + window._instructToken + '@') + '/api/register';
 		const repo = 'housecat-inc/' + app;
 
 		const gtSHA = await resolveSHA('housecat-inc/go-template', gtBranch);

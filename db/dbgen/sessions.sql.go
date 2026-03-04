@@ -40,6 +40,20 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const getEmailByUserID = `-- name: GetEmailByUserID :one
+SELECT email FROM sessions
+WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+func (q *Queries) GetEmailByUserID(ctx context.Context, userID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEmailByUserID, userID)
+	var email string
+	err := row.Scan(&email)
+	return email, err
+}
+
 const getSession = `-- name: GetSession :one
 SELECT id, user_id, email, created_at, expires_at, provider FROM sessions
 WHERE id = ? AND expires_at > CURRENT_TIMESTAMP
