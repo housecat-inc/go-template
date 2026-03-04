@@ -7,6 +7,7 @@ package dbgen
 
 import (
 	"context"
+	"time"
 )
 
 const countActivitiesByActor = `-- name: CountActivitiesByActor :one
@@ -224,6 +225,44 @@ func (q *Queries) ListActivitiesByTarget(ctx context.Context, arg ListActivities
 			&i.Metadata,
 			&i.CreatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVMCreators = `-- name: ListVMCreators :many
+SELECT a.object_id, a.created_at, a.metadata FROM activities a
+INNER JOIN (
+    SELECT object_id, MIN(id) AS min_id FROM activities
+    WHERE action = 'created_vm' AND object_type = 'vm'
+    GROUP BY object_id
+) b ON a.id = b.min_id
+`
+
+type ListVMCreatorsRow struct {
+	ObjectID  string    `json:"object_id"`
+	CreatedAt time.Time `json:"created_at"`
+	Metadata  *string   `json:"metadata"`
+}
+
+func (q *Queries) ListVMCreators(ctx context.Context) ([]ListVMCreatorsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listVMCreators)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListVMCreatorsRow{}
+	for rows.Next() {
+		var i ListVMCreatorsRow
+		if err := rows.Scan(&i.ObjectID, &i.CreatedAt, &i.Metadata); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

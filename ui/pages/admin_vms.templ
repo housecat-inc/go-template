@@ -15,9 +15,15 @@ import (
 	"github.com/housecat-inc/auth/ui/layouts"
 )
 
+type VMCreator struct {
+	CreatedAt time.Time
+	Email     string
+}
+
 type AdminVMsData struct {
 	Activities []ActivityEntry
 	Configured bool
+	Creators   map[string]VMCreator
 	Error      error
 	Hostname   string
 	LogoutURL  string
@@ -25,17 +31,39 @@ type AdminVMsData struct {
 	VMs        []exedev.VM
 }
 
-func vmStats(vms []exedev.VM) (running, total, public int) {
-	total = len(vms)
+type vmCardStats struct {
+	Private int
+	Public  int
+	Total   int
+}
+
+func appStats(vms []exedev.VM, creators map[string]VMCreator) vmCardStats {
+	var s vmCardStats
 	for _, vm := range vms {
-		if vm.Status == "running" {
-			running++
+		if _, ok := creators[vm.Name]; !ok {
+			continue
 		}
+		s.Total++
 		if vm.ShareStatus == "public" {
-			public++
+			s.Public++
+		} else {
+			s.Private++
 		}
 	}
-	return
+	return s
+}
+
+func allVMStats(vms []exedev.VM) vmCardStats {
+	var s vmCardStats
+	s.Total = len(vms)
+	for _, vm := range vms {
+		if vm.ShareStatus == "public" {
+			s.Public++
+		} else {
+			s.Private++
+		}
+	}
+	return s
 }
 
 templ AdminVMs(data AdminVMsData) {
@@ -95,11 +123,11 @@ templ AdminVMs(data AdminVMsData) {
 					}
 				}
 			} else {
-				{{ running, total, public := vmStats(data.VMs) }}
-				<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-					@adminVMStatsCard("Running", fmt.Sprintf("%d", running), fmt.Sprintf("%d stopped", total-running), icon.Zap(icon.Props{Size: 20}))
-					@adminVMStatsCard("Total VMs", fmt.Sprintf("%d", total), fmt.Sprintf("%d virtual machines", total), icon.Server(icon.Props{Size: 20}))
-					@adminVMStatsCard("Public", fmt.Sprintf("%d", public), fmt.Sprintf("%d private", total-public), icon.Globe(icon.Props{Size: 20}))
+				{{ apps := appStats(data.VMs, data.Creators) }}
+				{{ vms := allVMStats(data.VMs) }}
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+					@adminVMStatsCard("Apps", fmt.Sprintf("%d", apps.Total), fmt.Sprintf("%d public · %d private", apps.Public, apps.Private), icon.Layers(icon.Props{Size: 20}))
+					@adminVMStatsCard("VMs", fmt.Sprintf("%d", vms.Total), fmt.Sprintf("%d public · %d private", vms.Public, vms.Private), icon.Server(icon.Props{Size: 20}))
 				</div>
 				@card.Card() {
 					@card.Header() {
@@ -116,8 +144,10 @@ templ AdminVMs(data AdminVMsData) {
 						} else {
 							<div class="space-y-4">
 								for _, vm := range data.VMs {
-									@adminVMItem(vm)
+								if c, ok := data.Creators[vm.Name]; ok {
+									@adminVMItem(vm, c)
 								}
+							}
 							</div>
 						}
 					}
@@ -188,7 +218,7 @@ templ adminVMStatsCard(title, value, subtitle string, iconComponent templ.Compon
 	}
 }
 
-templ adminVMItem(vm exedev.VM) {
+templ adminVMItem(vm exedev.VM, creator VMCreator) {
 	<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg gap-3">
 		<div class="flex items-center gap-3">
 			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
@@ -202,10 +232,10 @@ templ adminVMItem(vm exedev.VM) {
 					}
 				</div>
 				<p class="text-sm text-muted-foreground truncate">
+					{ creator.Email }
+					 · <span title={ creator.CreatedAt.Format(time.RFC3339) }>{ relativeTime(creator.CreatedAt) }</span>
 					if vm.RegionDisplay != "" {
-						{ vm.RegionDisplay } · { vm.Status }
-					} else {
-						{ vm.Status }
+						 · { vm.RegionDisplay }
 					}
 				</p>
 			</div>
@@ -286,7 +316,7 @@ templ adminVMItem(vm exedev.VM) {
 }
 
 templ newVMDropdownItem(app, label string) {
-	<form method="POST" action="/admin/vms/new">
+	<form method="POST" action="/admin/vms/new" target="_blank">
 		<input type="hidden" name="app" value={ app }/>
 		@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"onclick": "this.closest('form').submit()"}}) {
 			<span class="flex items-center gap-2">

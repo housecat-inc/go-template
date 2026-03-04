@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -40,9 +41,27 @@ func (s *Server) HandleAdminVMs(c echo.Context) error {
 		}
 	}
 
+	creators := map[string]pages.VMCreator{}
 	var activities []pages.ActivityEntry
 	if s.DB != nil {
 		q := dbgen.New(s.DB)
+
+		if rows, err := q.ListVMCreators(ctx); err == nil {
+			for _, r := range rows {
+				email := ""
+				if r.Metadata != nil {
+					email = *r.Metadata
+					if i := strings.Index(email, " ("); i > 0 {
+						email = email[:i]
+					}
+				}
+				creators[r.ObjectID] = pages.VMCreator{
+					CreatedAt: r.CreatedAt,
+					Email:     email,
+				}
+			}
+		}
+
 		_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 			ActorID:    userID,
 			ActorType:  "user",
@@ -94,6 +113,7 @@ func (s *Server) HandleAdminVMs(c echo.Context) error {
 	data := pages.AdminVMsData{
 		Activities: activities,
 		Configured: s.ExeDev != nil,
+		Creators:   creators,
 		Error:      vmErr,
 		Hostname:   s.issuerURL(r),
 		LogoutURL:  logoutURL,
