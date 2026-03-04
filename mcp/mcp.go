@@ -31,15 +31,15 @@ type UserIdentity struct {
 	ID    string `json:"id"`
 }
 
-var services = []ServiceStatus{
+var Services = []ServiceStatus{
 	{
 		Name:        "gcal",
 		DisplayName: "Google Calendar",
 		Description: "Calendar access via Google Calendar API",
 		Levels: []AccessLevel{
-			{Level: "read", DisplayName: "Read events", Scopes: []string{"https://www.googleapis.com/auth/calendar.readonly"}},
-			{Level: "draft", DisplayName: "Draft events as self-only invites for review", Scopes: []string{"https://www.googleapis.com/auth/calendar"}},
-			{Level: "write", DisplayName: "Write events", Scopes: []string{"https://www.googleapis.com/auth/calendar"}},
+			{Level: "read", DisplayName: "Get events", Scopes: []string{"https://www.googleapis.com/auth/calendar.readonly"}},
+			{Level: "draft", DisplayName: "Create personal events for review", Scopes: []string{"https://www.googleapis.com/auth/calendar"}},
+			{Level: "write", DisplayName: "Create events and invites", Scopes: []string{"https://www.googleapis.com/auth/calendar"}},
 		},
 	},
 	{
@@ -47,27 +47,27 @@ var services = []ServiceStatus{
 		DisplayName: "Google Drive",
 		Description: "File access via Google Drive API",
 		Levels: []AccessLevel{
-			{Level: "read", DisplayName: "Read files", Scopes: []string{"https://www.googleapis.com/auth/drive.readonly"}},
-			{Level: "draft", DisplayName: "Draft as private docs for review", Scopes: []string{"https://www.googleapis.com/auth/drive.file"}},
-			{Level: "write", DisplayName: "Write files", Scopes: []string{"https://www.googleapis.com/auth/drive"}},
+			{Level: "read", DisplayName: "Get files and folders", Scopes: []string{"https://www.googleapis.com/auth/drive.readonly"}},
+			{Level: "draft", DisplayName: "Create private docs for review", Scopes: []string{"https://www.googleapis.com/auth/drive.file"}},
+			{Level: "write", DisplayName: "Create and share files", Scopes: []string{"https://www.googleapis.com/auth/drive"}},
 		},
 	},
 	{
 		Name:        "gmail",
-		DisplayName: "Gmail",
+		DisplayName: "Google Mail",
 		Description: "Email access via Gmail API",
 		Levels: []AccessLevel{
-			{Level: "read", DisplayName: "Read emails", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}},
-			{Level: "draft", DisplayName: "Draft emails without sending", Scopes: []string{"https://www.googleapis.com/auth/gmail.compose"}},
-			{Level: "write", DisplayName: "Write and send emails", Scopes: []string{"https://www.googleapis.com/auth/gmail.send"}},
+			{Level: "read", DisplayName: "Get emails and threads", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}},
+			{Level: "draft", DisplayName: "Create draft emails for review", Scopes: []string{"https://www.googleapis.com/auth/gmail.compose"}},
+			{Level: "write", DisplayName: "Send emails on your behalf", Scopes: []string{"https://www.googleapis.com/auth/gmail.send"}},
 		},
 	},
 	{
 		Name:        "granola",
 		DisplayName: "Granola",
-		Description: "Meeting notes via Granola API",
+		Description: "Meeting notes via Granola MCP",
 		Levels: []AccessLevel{
-			{Level: "read", DisplayName: "Read notes", Scopes: []string{"granola:read"}},
+			{Level: "read", DisplayName: "Get meeting notes", Scopes: []string{"openid", "email", "offline_access"}},
 		},
 	},
 	{
@@ -75,9 +75,9 @@ var services = []ServiceStatus{
 		DisplayName: "Notion",
 		Description: "Pages and databases via Notion API",
 		Levels: []AccessLevel{
-			{Level: "read", DisplayName: "Read pages", Scopes: []string{"notion:read"}},
-			{Level: "draft", DisplayName: "Draft as private pages for review", Scopes: []string{"notion:write"}},
-			{Level: "write", DisplayName: "Write pages", Scopes: []string{"notion:write"}},
+			{Level: "read", DisplayName: "Get pages and databases", Scopes: []string{"notion:read"}},
+			{Level: "draft", DisplayName: "Create private pages for review", Scopes: []string{"notion:write"}},
+			{Level: "write", DisplayName: "Create and share pages", Scopes: []string{"notion:write"}},
 		},
 	},
 	{
@@ -85,15 +85,15 @@ var services = []ServiceStatus{
 		DisplayName: "Slack",
 		Description: "Messaging via Slack API",
 		Levels: []AccessLevel{
-			{Level: "read", DisplayName: "Read messages", Scopes: []string{"channels:history", "channels:read"}},
-			{Level: "draft", DisplayName: "Draft as DMs to self for review", Scopes: []string{"chat:write", "channels:history", "channels:read"}},
-			{Level: "write", DisplayName: "Write messages", Scopes: []string{"chat:write", "channels:history", "channels:read"}},
+			{Level: "read", DisplayName: "Get messages and channels", Scopes: []string{"channels:history", "channels:read"}},
+			{Level: "draft", DisplayName: "Create DMs to self for review", Scopes: []string{"chat:write", "channels:history", "channels:read"}},
+			{Level: "write", DisplayName: "Send messages to channels", Scopes: []string{"chat:write", "channels:history", "channels:read"}},
 		},
 	},
 }
 
 func connections(ctx context.Context, req *gomcp.CallToolRequest, input struct{}) (*gomcp.CallToolResult, any, error) {
-	resp := ConnectionsResponse{Services: services}
+	resp := ConnectionsResponse{Services: Services}
 
 	if extra := req.GetExtra(); extra != nil && extra.TokenInfo != nil {
 		resp.User = &UserIdentity{ID: extra.TokenInfo.UserID}

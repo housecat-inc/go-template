@@ -1,0 +1,192 @@
+package pages
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/housecat-inc/auth/ui/components/badge"
+	"github.com/housecat-inc/auth/ui/components/button"
+	"github.com/housecat-inc/auth/ui/components/card"
+	"github.com/housecat-inc/auth/ui/components/icon"
+	"github.com/housecat-inc/auth/ui/layouts"
+)
+
+type IntegrationLevel struct {
+	Connected   bool
+	DisplayName string
+	Level       string
+}
+
+type Integration struct {
+	Connected   bool
+	Description string
+	DisplayName string
+	Levels      []IntegrationLevel
+	Name        string
+}
+
+type IntegrationsData struct {
+	Activities   []ActivityEntry
+	Integrations []Integration
+	LogoutURL    string
+	UserEmail    string
+}
+
+func integrationIcon(name string, size int) templ.Component {
+	switch name {
+	case "gcal":
+		return icon.Calendar(icon.Props{Size: size})
+	case "gdrive":
+		return icon.HardDrive(icon.Props{Size: size})
+	case "gmail":
+		return icon.Mail(icon.Props{Size: size})
+	case "granola":
+		return icon.Notebook(icon.Props{Size: size})
+	case "notion":
+		return icon.FileText(icon.Props{Size: size})
+	case "slack":
+		return icon.MessageSquare(icon.Props{Size: size})
+	default:
+		return icon.Plug(icon.Props{Size: size})
+	}
+}
+
+func levelBadgeVariant(connected bool) badge.Variant {
+	if connected {
+		return badge.VariantDefault
+	}
+	return badge.VariantOutline
+}
+
+templ Integrations(data IntegrationsData, isAdmin bool) {
+	@layouts.Layout(layouts.NavData{
+		IsAdmin:   isAdmin,
+		Title:     "Housecat Auth",
+		UserEmail: data.UserEmail,
+		LogoutURL: data.LogoutURL,
+	}) {
+		<div class="space-y-8">
+			<div>
+				<h1 class="text-3xl font-bold tracking-tight">Connections</h1>
+				<p class="text-muted-foreground mt-1">Connect your tools and services</p>
+			</div>
+			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+				for _, svc := range data.Integrations {
+					@integrationCard(svc)
+				}
+			</div>
+			if len(data.Activities) > 0 {
+				@integrationActivityFeed(data.Activities)
+			}
+		</div>
+	}
+}
+
+templ integrationCard(svc Integration) {
+	@card.Card(card.Props{Class: "h-full"}) {
+		@card.Content(card.ContentProps{Class: "p-6 h-full flex flex-col"}) {
+			if svc.Connected {
+				<div class="mb-4">
+					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
+						Connected
+					}
+				</div>
+			}
+			<div class="flex-1">
+				<h3 class="font-semibold text-lg mb-1">{ svc.DisplayName }</h3>
+				<p class="text-sm text-muted-foreground mb-4 line-clamp-2 min-h-[2.5rem]">{ svc.Description }</p>
+				<ul class="space-y-2 mb-4">
+					for _, lvl := range svc.Levels {
+						<li class="flex items-center gap-2 text-sm">
+							if lvl.Connected {
+								@icon.CircleCheck(icon.Props{Size: 14, Class: "text-primary flex-shrink-0"})
+							} else {
+								@icon.Circle(icon.Props{Size: 14, Class: "text-muted-foreground/40 flex-shrink-0"})
+							}
+							<span class="flex-1 text-muted-foreground">{ lvl.DisplayName }</span>
+							@badge.Badge(badge.Props{Variant: levelBadgeVariant(lvl.Connected), Class: "text-[10px] px-1.5 py-0"}) {
+								{ lvl.Level }
+							}
+						</li>
+					}
+				</ul>
+			</div>
+			<div class="flex gap-2 mt-auto pt-4">
+				if svc.Connected {
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Class:   "w-full",
+						Href:    fmt.Sprintf("/connect/%s", svc.Name),
+					}) {
+						@icon.Settings(icon.Props{Size: 16})
+						Configure
+					}
+				} else {
+					@button.Button(button.Props{
+						Class: "w-full",
+						Href:  fmt.Sprintf("/connect/%s", svc.Name),
+					}) {
+						@integrationIcon(svc.Name, 16)
+						Connect
+					}
+				}
+			</div>
+		}
+	}
+}
+
+templ integrationActivityFeed(activities []ActivityEntry) {
+	@card.Card() {
+		@card.Header() {
+			@card.Title() {
+				Recent Activity
+			}
+			@card.Description() {
+				Integration connection events
+			}
+		}
+		@card.Content() {
+			<div class="relative">
+				<div class="absolute left-[15px] top-0 bottom-0 w-0.5 bg-border"></div>
+				<div class="space-y-6">
+					for _, a := range activities {
+						@integrationActivityItem(a)
+					}
+				</div>
+			</div>
+		}
+	}
+}
+
+templ integrationActivityItem(a ActivityEntry) {
+	<div class="relative flex gap-4">
+		<div class="relative z-10 w-8 h-8 bg-muted rounded-full border-4 border-background flex items-center justify-center flex-shrink-0">
+			@activityIcon(a.Action)
+		</div>
+		<div class="flex-1 pb-2">
+			<p class="text-sm">
+				<span class="font-medium">{ a.Action }</span>
+				if a.Metadata != "" {
+					<span class="text-muted-foreground"> — { a.Metadata }</span>
+				}
+			</p>
+			<span
+				class="text-xs text-muted-foreground"
+				title={ a.CreatedAt.Format(time.RFC3339) }
+			>{ relativeTime(a.CreatedAt) }</span>
+		</div>
+	</div>
+}
+
+func activityIcon(action string) templ.Component {
+	switch action {
+	case "connected_integration":
+		return icon.Plug(icon.Props{Size: 14})
+	case "disconnected_integration":
+		return icon.Unplug(icon.Props{Size: 14})
+	case "configured_integration":
+		return icon.Settings(icon.Props{Size: 14})
+	default:
+		return icon.Zap(icon.Props{Size: 14})
+	}
+}

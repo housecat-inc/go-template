@@ -36,12 +36,19 @@ type vmSetup struct {
 	ShelleyURL string
 }
 
+type ServiceOAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+}
+
 type Server struct {
 	DB                *sql.DB
 	ExeDev            *exedev.Client
 	GitProxy *gh.Proxy
 	Hostname          string
+	NotionOAuth       ServiceOAuthConfig
 	OAuth             OAuthConfig
+	SlackOAuth        ServiceOAuthConfig
 	oauth2Config  *oauth2.Config
 	googleOIDC    *googleoidc.Provider
 	oidcCrypto    op.Crypto
@@ -103,13 +110,54 @@ func (s *Server) Serve(addr string) error {
 	e.HideBanner = true
 	e.HidePort = true
 
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			err := next(c)
+			if err != nil {
+				c.Error(err)
+			}
+			return nil
+		}
+	})
+
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		if c.Response().Committed {
+			return
+		}
+		code := http.StatusInternalServerError
+		msg := "internal server error"
+		var he *echo.HTTPError
+		if errors.As(err, &he) {
+			code = he.Code
+			if m, ok := he.Message.(string); ok {
+				msg = m
+			}
+		}
+		slog.Error("http error",
+			"status", code,
+			"method", c.Request().Method,
+			"path", c.Request().URL.Path,
+			"error", err,
+		)
+		_ = c.String(code, msg)
+	}
+
 	e.GET("/", s.HandleRoot)
+	e.GET("/connect", s.HandleHome, s.RequireAuth)
+	e.GET("/connect/:service", s.HandleConnect, s.RequireAuth)
+	e.GET("/connect/:service/enable/:level", s.HandleConnectEnable, s.RequireAuth)
+	e.POST("/connect/:service/disconnect/:level", s.HandleConnectDisconnect, s.RequireAuth)
+
 	e.GET("/profile", s.HandleProfile, s.RequireAuth)
 	e.GET("/auth/exedev", s.HandleAuthExeDev)
 	if s.oauth2Config != nil {
 		e.GET("/auth/google", s.HandleAuthGoogle)
-		e.GET("/auth/google/callback", s.HandleAuthCallback)
+		e.GET("/auth/google/callback", s.handleAuthLoginCallback)
+		e.GET("/connect/google/callback", s.HandleConnectCallback, s.RequireAuth)
 	}
+	e.GET("/connect/granola/callback", s.HandleGranolaCallback, s.RequireAuth)
+	e.GET("/connect/slack/callback", s.HandleConnectCallback, s.RequireAuth)
+	e.GET("/connect/notion/callback", s.HandleConnectCallback, s.RequireAuth)
 	e.GET("/auth/logout", s.HandleAuthLogout)
 
 	admin := e.Group("/admin", s.RequireAuth, s.RequireAdmin)
@@ -200,11 +248,11 @@ func (s *Server) HandleRoot(c echo.Context) error {
 	r := c.Request()
 
 	if isLoopback(r) {
-		return c.Redirect(http.StatusFound, "/admin/vms")
+		return c.Redirect(http.StatusFound, "/connect")
 	}
 
 	if _, err := s.getSession(r); err == nil {
-		return c.Redirect(http.StatusFound, "/admin/vms")
+		return c.Redirect(http.StatusFound, "/connect")
 	}
 
 	redirect := c.QueryParam("redirect")

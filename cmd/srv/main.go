@@ -52,6 +52,15 @@ func run() error {
 		return errors.Wrap(err, "create server")
 	}
 
+	server.NotionOAuth = srv.ServiceOAuthConfig{
+		ClientID:     os.Getenv("NOTION_CLIENT_ID"),
+		ClientSecret: os.Getenv("NOTION_CLIENT_SECRET"),
+	}
+	server.SlackOAuth = srv.ServiceOAuthConfig{
+		ClientID:     os.Getenv("SLACK_CLIENT_ID"),
+		ClientSecret: os.Getenv("SLACK_CLIENT_SECRET"),
+	}
+
 	if pemPath := os.Getenv("GH_APP_PEM_PATH"); pemPath != "" {
 		proxy, err := buildGitProxy(pemPath, server.DB)
 		if err != nil {

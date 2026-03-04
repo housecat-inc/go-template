@@ -37,3 +37,9 @@ INNER JOIN (
     WHERE action = 'created_vm' AND object_type = 'vm'
     GROUP BY object_id
 ) b ON a.id = b.min_id;
+
+-- name: ListActivitiesByActorAndObjectType :many
+SELECT * FROM activities
+WHERE actor_id = ? AND object_type = ?
+ORDER BY created_at DESC
+LIMIT ?;

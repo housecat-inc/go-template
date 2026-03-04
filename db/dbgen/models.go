@@ -21,6 +21,20 @@ type Activity struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type OauthToken struct {
+	ID           int64      `json:"id"`
+	AccessToken  string     `json:"access_token"`
+	ExpiresAt    *time.Time `json:"expires_at"`
+	Level        string     `json:"level"`
+	Provider     string     `json:"provider"`
+	RefreshToken string     `json:"refresh_token"`
+	Scopes       string     `json:"scopes"`
+	Service      string     `json:"service"`
+	UserID       string     `json:"user_id"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
 type OidcAccessToken struct {
 	ID            string    `json:"id"`
 	ApplicationID string    `json:"application_id"`

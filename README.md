@@ -65,6 +65,22 @@ The service file includes:
 - **NoNewPrivileges=true** — prevents privilege escalation
 - **PrivateTmp=true** — isolated `/tmp`
 
+## OAuth Apps
+
+### Google
+
+- Dev: https://console.cloud.google.com/auth/clients/50612844646-pm82tn2127p4k13atssol6pvnbds0fam.apps.googleusercontent.com?project=catclaw-488500
+- Prod: https://console.cloud.google.com/auth/clients?project=housecat-476300
+
+### Slack
+
+- Prod: https://app.slack.com/app-settings/T0A49ED8YQY/A0A3243PSUF/oauth
+
+### Notion
+
+- Dev: https://www.notion.so/profile/integrations/public/30dd872b-594c-81d0-a1dc-00378bb7a079
+- Prod: https://www.notion.so/profile/integrations/public/2c4d872b-594c-80ef-aed4-00379aff0462
+
 ## Authorization
 
 To make public go to https://auth.housecat.com/admin and generate a setup token and pass the instructions to Shelley.

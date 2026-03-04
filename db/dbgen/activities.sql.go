@@ -98,6 +98,53 @@ func (q *Queries) ListActivitiesByActor(ctx context.Context, arg ListActivitiesB
 	return items, nil
 }
 
+const listActivitiesByActorAndObjectType = `-- name: ListActivitiesByActorAndObjectType :many
+SELECT id, actor_id, actor_type, "action", object_id, object_type, target_id, target_type, metadata, created_at FROM activities
+WHERE actor_id = ? AND object_type = ?
+ORDER BY created_at DESC
+LIMIT ?
+`
+
+type ListActivitiesByActorAndObjectTypeParams struct {
+	ActorID    string `json:"actor_id"`
+	ObjectType string `json:"object_type"`
+	Limit      int64  `json:"limit"`
+}
+
+func (q *Queries) ListActivitiesByActorAndObjectType(ctx context.Context, arg ListActivitiesByActorAndObjectTypeParams) ([]Activity, error) {
+	rows, err := q.db.QueryContext(ctx, listActivitiesByActorAndObjectType, arg.ActorID, arg.ObjectType, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Activity{}
+	for rows.Next() {
+		var i Activity
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.ActorType,
+			&i.Action,
+			&i.ObjectID,
+			&i.ObjectType,
+			&i.TargetID,
+			&i.TargetType,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActivitiesByObject = `-- name: ListActivitiesByObject :many
 SELECT id, actor_id, actor_type, "action", object_id, object_type, target_id, target_type, metadata, created_at FROM activities
 WHERE object_type = ? AND object_id = ?

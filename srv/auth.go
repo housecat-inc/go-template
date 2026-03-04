@@ -182,7 +182,7 @@ func (s *Server) HandleAuthGoogle(c echo.Context) error {
 	return c.Redirect(http.StatusFound, cfg.AuthCodeURL(state))
 }
 
-func (s *Server) HandleAuthCallback(c echo.Context) error {
+func (s *Server) handleAuthLoginCallback(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
 
@@ -334,7 +334,7 @@ func (s *Server) createSessionAndRedirect(c echo.Context, userID, email, provide
 		MaxAge:   30 * 24 * 60 * 60,
 	})
 
-	redirectTo := "/admin/vms"
+	redirectTo := "/connect"
 	if cookie, err := r.Cookie("oauth_redirect"); err == nil && cookie.Value != "" {
 		redirectTo = cookie.Value
 		c.SetCookie(&http.Cookie{
