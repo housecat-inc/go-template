@@ -3,38 +3,32 @@ name: git
 description: Git and GitHub workflow — auth via GitHub App, branch management for feature work, opening pull requests, and syncing with main.
 ---
 
-## Auth
-
-If `gh` has auth problems, run `gh auth status` and if the user is the bot run `gh-app` to refresh the token.
-
-### VM Auth Setup
-
-A VM uses `gh-app` to to auth to GitHub as `shelley-agent[bot]` using a GitHub App (ID: `2976885`) and a private key stored at `~/.ssh/shelley-agent.pem`, to refresh the a token then run `gh`.
-
-Install the pem to `~/.ssh/` and `gh-app` to PATH (once per VM). After authenticating, configure git to use `gh` for HTTPS credentials.
+## Access
 
 ```bash
-# write ~/.ssh/shelley-agent.pem
-go install github.com/housecat-inc/go-template/cmd/gh-app@latest
-gh-app
-gh auth setup-git
-git config --global user.name  = shelley-agent[bot]
-git config --global user.email = 2976885+shelley-agent[bot]@users.noreply.github.com
+# view git proxy and user config
+git config --global --list
+
+# verify basic git access
+git ls-remote --heads https://github.com/housecat-inc/go-template.git
+
+# verify basic gh cli access
+gh auth status
 ```
 
 ## Branch Management
 
 ### Starting feature work
 
-Always branch from an up-to-date `main`:
+Always branch with a `$HOSTNAME/` from an up-to-date `main`:
 
 ```bash
 git checkout main
 git pull origin main
-git checkout -b feature/short-description
+git checkout -b $HOSTNAME/short-description
 ```
 
-Use descriptive branch names: `feature/add-search`, `fix/login-redirect`, `refactor/db-layer`.
+Use descriptive branch names: `warm-bengal/feature-add-search`, `warm-bengal/fix-login-redirect`, `warm-bengal/refactor-db-layer`.
 
 Prefer rebasing on main for a clean history.
 
@@ -50,16 +44,21 @@ git commit -m "add search endpoint and handler"
 ### Pushing
 
 ```bash
-gh auth status
-gh-app # if a VM with expired token
-git push origin feature/short-description
+git push origin $HOSTNAME/short-description
 ```
 
 ## Opening Pull Requests
 
 ### PR title and description
 
-Write titles and descriptions as customer-facing release notes. Focus on what changed for the user, not implementation details. The code reviewer will read the code and run automated tests.
+Use `gh` to open GitHub pull requests with a title and description as customer-facing release notes. Focus on what changed for the user, not code details, test coverage, or file-level changes. The code reviewer will read the code and run automated tests.
+
+```bash
+gh auth login
+gh pr create --title "Added GitHub integration" --body "- Add GitHub app sign in option
+- Add GitHub project management service integration
+- Add GitHub flavored markdown (GFM) to document renderer"
+```
 
 **Title:** Past-tense summary of the user-visible change.
 
@@ -74,5 +73,3 @@ Body:
 - Add GitHub project management service integration
 - Add GitHub flavored markdown (GFM) to document renderer
 ```
-
-Do NOT describe code details, test coverage, refactoring mechanics, or file-level changes.
