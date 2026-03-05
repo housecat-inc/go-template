@@ -176,13 +176,12 @@ func callTool(ctx context.Context, session *mcp.ClientSession, toolName string, 
 	}
 
 	if result.IsError {
-		// Print error content as-is
 		for _, c := range result.Content {
 			if tc, ok := c.(*mcp.TextContent); ok {
 				fmt.Fprintln(os.Stderr, tc.Text)
 			}
 		}
-		os.Exit(1)
+		return fmt.Errorf("tool %q returned an error", toolName)
 	}
 
 	// If there's structured content, print that directly
@@ -202,7 +201,9 @@ func callTool(ctx context.Context, session *mcp.ClientSession, toolName string, 
 		if json.Unmarshal([]byte(tc.Text), &obj) == nil {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
-			enc.Encode(obj)
+			if err := enc.Encode(obj); err != nil {
+				return fmt.Errorf("encode JSON output: %w", err)
+			}
 		} else {
 			fmt.Println(tc.Text)
 		}
@@ -236,16 +237,7 @@ func runStdioProxy(ctx context.Context, remoteSession *mcp.ClientSession) error 
 		return fmt.Errorf("list remote tools: %w", err)
 	}
 
-	for _, tool := range toolsResult.Tools {
-		t := tool
-		slog.Info("proxying tool", "name", t.Name)
-		server.AddTool(t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return remoteSession.CallTool(ctx, &mcp.CallToolParams{
-				Name:      t.Name,
-				Arguments: json.RawMessage(req.Params.Arguments),
-			})
-		})
-	}
+	registerProxyTools(server, remoteSession, toolsResult.Tools)
 
 	// Handle paginated tool listings
 	for toolsResult.NextCursor != "" {
@@ -255,20 +247,23 @@ func runStdioProxy(ctx context.Context, remoteSession *mcp.ClientSession) error 
 		if err != nil {
 			return fmt.Errorf("list remote tools (page): %w", err)
 		}
-		for _, tool := range toolsResult.Tools {
-			t := tool
-			slog.Info("proxying tool", "name", t.Name)
-			server.AddTool(t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				return remoteSession.CallTool(ctx, &mcp.CallToolParams{
-					Name:      t.Name,
-					Arguments: json.RawMessage(req.Params.Arguments),
-				})
-			})
-		}
+		registerProxyTools(server, remoteSession, toolsResult.Tools)
 	}
 
 	slog.Info("starting stdio transport")
 	return server.Run(ctx, &mcp.StdioTransport{})
+}
+
+func registerProxyTools(server *mcp.Server, remoteSession *mcp.ClientSession, tools []*mcp.Tool) {
+	for _, t := range tools {
+		slog.Info("proxying tool", "name", t.Name)
+		server.AddTool(t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return remoteSession.CallTool(ctx, &mcp.CallToolParams{
+				Name:      t.Name,
+				Arguments: json.RawMessage(req.Params.Arguments),
+			})
+		})
+	}
 }
 
 type tokenTransport struct {

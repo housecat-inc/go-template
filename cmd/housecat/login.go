@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -31,17 +32,24 @@ type cachedToken struct {
 }
 
 // tokenCachePath returns the path to the cached token file for a given server URL.
-func tokenCachePath(serverURL string) string {
+func tokenCachePath(serverURL string) (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("config dir: %w", err)
+	}
 	h := sha256.Sum256([]byte(serverURL))
 	name := hex.EncodeToString(h[:8])
-	dir, _ := os.UserConfigDir()
-	return filepath.Join(dir, "housecat", "tokens", name+".json")
+	return filepath.Join(dir, "housecat", "tokens", name+".json"), nil
 }
 
 // loadCachedToken loads a cached token if it exists. If the access token is
 // expired but a refresh token is available, it attempts a silent refresh.
 func loadCachedToken(ctx context.Context, serverURL string) (string, bool) {
-	data, err := os.ReadFile(tokenCachePath(serverURL))
+	path, err := tokenCachePath(serverURL)
+	if err != nil {
+		return "", false
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", false
 	}
@@ -81,7 +89,11 @@ func loadCachedToken(ctx context.Context, serverURL string) (string, bool) {
 
 // saveCachedToken saves a token to the cache.
 func saveCachedToken(serverURL string, token *oauth2.Token, tokenURL, clientID, clientSecret string) {
-	path := tokenCachePath(serverURL)
+	path, err := tokenCachePath(serverURL)
+	if err != nil {
+		slog.Warn("could not determine token cache path", "err", err)
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		slog.Warn("could not create token cache dir", "err", err)
 		return
@@ -119,6 +131,10 @@ func login(ctx context.Context, serverURL string) (string, error) {
 		return "", fmt.Errorf("OIDC discovery: %w", err)
 	}
 
+	if oidcConfig.RegistrationEndpoint == "" {
+		return "", fmt.Errorf("server does not support dynamic client registration")
+	}
+
 	// Start local HTTP server for redirect
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -148,7 +164,10 @@ func login(ctx context.Context, serverURL string) (string, error) {
 
 	// Generate PKCE verifier and state
 	codeVerifier := oauth2.GenerateVerifier()
-	state := randomHex(16)
+	state, err := randomHex(16)
+	if err != nil {
+		return "", fmt.Errorf("generate state: %w", err)
+	}
 
 	authURL := cfg.AuthCodeURL(state,
 		oauth2.S256ChallengeOption(codeVerifier),
@@ -156,7 +175,7 @@ func login(ctx context.Context, serverURL string) (string, error) {
 
 	// Open browser
 	slog.Info("opening browser for login")
-	if err := exec.Command("open", authURL).Start(); err != nil {
+	if err := openBrowser(authURL); err != nil {
 		slog.Warn("could not open browser, open manually", "url", authURL)
 	}
 
@@ -170,16 +189,44 @@ func login(ctx context.Context, serverURL string) (string, error) {
 			}
 			q := r.URL.Query()
 			if errMsg := q.Get("error"); errMsg != "" {
-				codeCh <- callbackResult{err: fmt.Errorf("authorization error: %s: %s", errMsg, q.Get("error_description"))}
-			} else {
-				codeCh <- callbackResult{code: q.Get("code"), state: q.Get("state")}
+				errDesc := q.Get("error_description")
+				if errDesc != "" {
+					http.Error(w, fmt.Sprintf("Authorization failed: %s: %s", errMsg, errDesc), http.StatusBadRequest)
+				} else {
+					http.Error(w, fmt.Sprintf("Authorization failed: %s", errMsg), http.StatusBadRequest)
+				}
+				select {
+				case codeCh <- callbackResult{err: fmt.Errorf("authorization error: %s: %s", errMsg, errDesc)}:
+				default:
+				}
+				return
+			}
+
+			code := q.Get("code")
+			st := q.Get("state")
+			if code == "" || st == "" {
+				http.Error(w, "Authorization failed: missing code or state.", http.StatusBadRequest)
+				select {
+				case codeCh <- callbackResult{err: fmt.Errorf("authorization callback missing code or state")}:
+				default:
+				}
+				return
+			}
+
+			select {
+			case codeCh <- callbackResult{code: code, state: st}:
+			default:
 			}
 			fmt.Fprintln(w, "Login successful! You can close this tab.")
 		}),
 	}
 
 	go srv.Serve(listener)
-	defer srv.Shutdown(ctx)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(shutdownCtx)
+	}()
 
 	var result callbackResult
 	select {
@@ -224,6 +271,7 @@ func issuerFromServerURL(serverURL string) (string, error) {
 	}
 	u.Path = ""
 	u.RawQuery = ""
+	u.Fragment = ""
 	return u.String(), nil
 }
 
@@ -274,8 +322,23 @@ func registerClient(ctx context.Context, endpoint, redirectURL string) (clientID
 	return result.ClientID, result.ClientSecret, nil
 }
 
-func randomHex(n int) string {
+func openBrowser(url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform %s", runtime.GOOS)
+	}
+}
+
+func randomHex(n int) (string, error) {
 	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("crypto/rand: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
