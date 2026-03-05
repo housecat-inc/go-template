@@ -85,13 +85,6 @@ templ Integrations(data IntegrationsData, isAdmin bool) {
 templ integrationCard(svc Integration) {
 	@card.Card(card.Props{Class: "h-full"}) {
 		@card.Content(card.ContentProps{Class: "p-6 h-full flex flex-col"}) {
-			if svc.Connected {
-				<div class="mb-4">
-					@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
-						Connected
-					}
-				</div>
-			}
 			<div class="flex-1">
 				<h3 class="font-semibold text-lg mb-1">{ svc.DisplayName }</h3>
 				<p class="text-sm text-muted-foreground mb-4 line-clamp-2 min-h-[2.5rem]">{ svc.Description }</p>
