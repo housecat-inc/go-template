@@ -40,7 +40,11 @@ func main() {
 func run() error {
 	stepStart := time.Now()
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: register <register-url> [repo]\n  repo: GitHub org/name to clone and build (default: housecat-inc/go-template)")
+		return fmt.Errorf("usage: register <register-url> [repo]\n       register setup [repo]\n  repo: GitHub org/name to clone and build (default: housecat-inc/go-template)")
+	}
+
+	if os.Args[1] == "setup" {
+		return runSetup()
 	}
 
 	logger.Info("parsing arguments")
@@ -132,6 +136,40 @@ func run() error {
 	fmt.Printf("    App:       %s\n", appName)
 	fmt.Printf("    Repo:      %s@%s\n", repo, branch)
 	fmt.Printf("    Client ID: %s\n", clientID)
+	_ = shell("systemctl", "status", "srv", "--no-pager")
+	return nil
+}
+
+func runSetup() error {
+	repoArg := "housecat-inc/go-template"
+	if len(os.Args) >= 3 {
+		repoArg = os.Args[2]
+	}
+	repo, branch := repoArg, "main"
+	if at := strings.LastIndex(repoArg, "@"); at > 0 {
+		repo = repoArg[:at]
+		branch = repoArg[at+1:]
+	}
+	_, repoName, _ := strings.Cut(repo, "/")
+	if repoName == "" {
+		return fmt.Errorf("invalid repo %q: expected org/name[@branch]", repo)
+	}
+
+	stepStart := time.Now()
+	if err := cloneAndBuild(repo, repoName, branch); err != nil {
+		return fmt.Errorf("clone and build: %w", err)
+	}
+	logger.Info("cloned and built", "repo", repo, "branch", branch, "duration", time.Since(stepStart))
+
+	stepStart = time.Now()
+	fmt.Println("==> Restarting service...")
+	if err := sudo("systemctl", "restart", "srv"); err != nil {
+		return fmt.Errorf("restart service: %w", err)
+	}
+	logger.Info("restarted service", "duration", time.Since(stepStart))
+
+	fmt.Println("==> Done")
+	fmt.Printf("    Repo: %s@%s\n", repo, branch)
 	_ = shell("systemctl", "status", "srv", "--no-pager")
 	return nil
 }
