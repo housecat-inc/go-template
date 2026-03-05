@@ -430,6 +430,11 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 		fmt.Fprintf(os.Stderr, "WARNING: install gh wrapper: %v\n", err)
 	}
 
+	fmt.Println("==> Installing housecat CLI...")
+	if err := shell("go", "install", "github.com/housecat-inc/go-template/cmd/housecat@latest"); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: install housecat CLI: %v\n", err)
+	}
+
 	fmt.Println("==> Smoke testing git proxy...")
 	out, err := exec.Command("git", "ls-remote", "--heads", "https://github.com/housecat-inc/go-template.git").CombinedOutput()
 	if err != nil {
