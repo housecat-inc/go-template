@@ -349,7 +349,7 @@ func registerClient(token, endpoint, appName string) (string, string, string, er
 		GrantTypes:              []string{"authorization_code"},
 		ResponseTypes:           []string{"code"},
 		TokenEndpointAuthMethod: "client_secret_basic",
-		Scope:                   "openid email profile git",
+		Scope:                   "openid email profile offline_access git",
 	})
 	if err != nil {
 		return "", "", "", fmt.Errorf("marshal request: %w", err)
