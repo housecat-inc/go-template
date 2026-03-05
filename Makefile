@@ -15,6 +15,9 @@ install: build
 	sudo chown -R exedev:exedev /opt/srv/data
 	sudo chmod 0700 /opt/srv/data
 	test -f /home/exedev/.env && sudo cp /home/exedev/.env /opt/srv/data/.env && sudo chown exedev:exedev /opt/srv/data/.env && sudo chmod 0600 /opt/srv/data/.env || true
+	sudo cp srv.service /etc/systemd/system/srv.service
+	sudo systemctl daemon-reload
+	sudo systemctl enable srv.service
 
 clean:
 	rm -f bin/srv
