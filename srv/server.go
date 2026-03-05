@@ -225,7 +225,30 @@ func (s *Server) Serve(addr string) error {
 	e.Any("/ready", echo.WrapHandler(oidcHandler))
 	e.Any("/device_authorization", echo.WrapHandler(oidcHandler))
 
-	mcpServer := hcmcp.NewServer()
+	mcpServer := hcmcp.NewServer(
+		"https://"+s.Hostname,
+		func(ctx context.Context, userID, service, level string) (string, error) {
+			if s.DB == nil {
+				return "", errors.New("database not configured")
+			}
+			q := dbgen.New(s.DB)
+			tok, err := q.GetOAuthToken(ctx, dbgen.GetOAuthTokenParams{
+				UserID:  userID,
+				Service: service,
+				Level:   level,
+			})
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return "", hcmcp.ErrTokenNotFound
+				}
+				return "", errors.Wrap(err, "get oauth token")
+			}
+			return tok.AccessToken, nil
+		},
+		func(ctx context.Context, userID string) map[string]map[string]bool {
+			return s.connectedLevelsForUser(ctx, userID)
+		},
+	)
 	mcpHandler := gomcp.NewStreamableHTTPHandler(func(req *http.Request) *gomcp.Server {
 		return mcpServer
 	}, &gomcp.StreamableHTTPOptions{

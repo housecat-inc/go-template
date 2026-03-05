@@ -24,15 +24,15 @@ var googleServices = map[string]bool{
 }
 
 func (s *Server) oauthConfigForService(r *http.Request, service, level string) (*oauth2.Config, error) {
-	svc, ok := servicesByName[service]
+	svc, ok := servicesByID[service]
 	if !ok {
 		return nil, errors.Newf("unknown service: %s", service)
 	}
 
-	var lvl *mcp.AccessLevel
-	for i := range svc.Levels {
-		if svc.Levels[i].Level == level {
-			lvl = &svc.Levels[i]
+	var lvl *mcp.Connection
+	for i := range svc.Connections {
+		if svc.Connections[i].Level == level {
+			lvl = &svc.Connections[i]
 			break
 		}
 	}
@@ -221,11 +221,11 @@ func (s *Server) HandleConnectCallback(c echo.Context) error {
 		provider = service
 	}
 
-	svc := servicesByName[service]
+	svc := servicesByID[service]
 	var scopeStr string
-	for _, l := range svc.Levels {
-		if l.Level == level {
-			scopeStr = strings.Join(l.Scopes, ",")
+	for _, c := range svc.Connections {
+		if c.Level == level {
+			scopeStr = strings.Join(c.Scopes, ",")
 			break
 		}
 	}
@@ -253,7 +253,7 @@ func (s *Server) HandleConnectCallback(c echo.Context) error {
 		return errors.Wrap(err, "save oauth token")
 	}
 
-	meta := userEmail + " connected " + svc.DisplayName + " (" + level + ")"
+	meta := userEmail + " connected " + svc.Name + " (" + level + ")"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 		ActorID:    userID,
 		ActorType:  "user",
@@ -306,7 +306,7 @@ func (s *Server) HandleConnectDisconnect(c echo.Context) error {
 	service := c.Param("service")
 	level := c.Param("level")
 
-	svc, ok := servicesByName[service]
+	svc, ok := servicesByID[service]
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "unknown service")
 	}
@@ -324,7 +324,7 @@ func (s *Server) HandleConnectDisconnect(c echo.Context) error {
 		return errors.Wrap(err, "delete oauth token")
 	}
 
-	meta := userEmail + " disconnected " + svc.DisplayName + " (" + level + ")"
+	meta := userEmail + " disconnected " + svc.Name + " (" + level + ")"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 		ActorID:    userID,
 		ActorType:  "user",

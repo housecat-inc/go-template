@@ -10,40 +10,40 @@ import (
 	"github.com/housecat-inc/auth/ui/pages"
 )
 
-var servicesByName map[string]mcp.ServiceStatus
+var servicesByID map[string]mcp.Service
 
 func init() {
-	servicesByName = make(map[string]mcp.ServiceStatus, len(mcp.Services))
+	servicesByID = make(map[string]mcp.Service, len(mcp.Services))
 	for _, svc := range mcp.Services {
-		servicesByName[svc.Name] = svc
+		servicesByID[svc.ID] = svc
 	}
 }
 
-func buildIntegrations(services []mcp.ServiceStatus, connectedLevels map[string]map[string]bool) []pages.Integration {
+func buildIntegrations(services []mcp.Service, connectedLevels map[string]map[string]bool) []pages.Integration {
 	var out []pages.Integration
 	for _, svc := range services {
 		var levels []pages.IntegrationLevel
 		anyConnected := false
-		for _, lvl := range svc.Levels {
+		for _, conn := range svc.Connections {
 			connected := false
-			if m, ok := connectedLevels[svc.Name]; ok {
-				connected = m[lvl.Level]
+			if m, ok := connectedLevels[svc.ID]; ok {
+				connected = m[conn.Level]
 			}
 			if connected {
 				anyConnected = true
 			}
 			levels = append(levels, pages.IntegrationLevel{
 				Connected:   connected,
-				DisplayName: lvl.DisplayName,
-				Level:       lvl.Level,
+				DisplayName: conn.Description,
+				Level:       conn.Level,
 			})
 		}
 		out = append(out, pages.Integration{
 			Connected:   anyConnected,
 			Description: svc.Description,
-			DisplayName: svc.DisplayName,
+			DisplayName: svc.Name,
 			Levels:      levels,
-			Name:        svc.Name,
+			Name:        svc.ID,
 		})
 	}
 	return out
@@ -112,8 +112,8 @@ func (s *Server) HandleHome(c echo.Context) error {
 	return pages.Integrations(data, isAdminWithProvider(userEmail, provider)).Render(ctx, c.Response())
 }
 
-func buildIntegration(svc mcp.ServiceStatus, connectedLevels map[string]bool) pages.Integration {
-	all := buildIntegrations([]mcp.ServiceStatus{svc}, map[string]map[string]bool{svc.Name: connectedLevels})
+func buildIntegration(svc mcp.Service, connectedLevels map[string]bool) pages.Integration {
+	all := buildIntegrations([]mcp.Service{svc}, map[string]map[string]bool{svc.ID: connectedLevels})
 	return all[0]
 }
 
@@ -126,7 +126,7 @@ func (s *Server) HandleConnect(c echo.Context) error {
 	provider := c.Get("provider").(string)
 
 	name := c.Param("service")
-	svc, ok := servicesByName[name]
+	svc, ok := servicesByID[name]
 	if !ok {
 		return echo.NewHTTPError(404, "unknown service")
 	}
