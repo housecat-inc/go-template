@@ -30,9 +30,10 @@ func NewProvider(issuer string, db *sql.DB, keyPath string, sessionSecret string
 	}
 	cryptoKey := sha256.Sum256([]byte(sessionSecret))
 	config := &op.Config{
-		CryptoKey:      cryptoKey,
-		CodeMethodS256: true,
-		AuthMethodPost: true,
+		AuthMethodPost:        true,
+		CodeMethodS256:        true,
+		CryptoKey:             cryptoKey,
+		GrantTypeRefreshToken: true,
 	}
 
 	provider, err := op.NewOpenIDProvider(issuer, config, storage)

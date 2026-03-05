@@ -89,7 +89,6 @@ templ clientsStatsCard(title, value, subtitle string, iconComponent templ.Compon
 }
 
 templ clientsListItem(client dbgen.OidcClient) {
-	{{ uris := splitCommaTempl(client.RedirectUris) }}
 	{{ scopes := splitCommaTempl(client.Scopes) }}
 	<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg gap-3">
 		<div class="flex items-center gap-3">
@@ -101,16 +100,8 @@ templ clientsListItem(client dbgen.OidcClient) {
 					<a href={ templ.SafeURL(fmt.Sprintf("/admin/clients/%d", client.ID)) } class="font-medium truncate hover:underline">{ client.Name }</a>
 				</div>
 				<p class="text-sm text-muted-foreground truncate">
-					if len(uris) > 0 {
-						{ uris[0] }
-						if len(uris) > 1 {
-							<span class="ml-1">+{ fmt.Sprintf("%d", len(uris)-1) } more</span>
-						}
-					}
-					<span class="ml-1">·</span>
 					<span
 						title={ client.CreatedAt.Format(time.RFC3339) }
-						class="ml-1"
 					>{ relativeTime(client.CreatedAt) }</span>
 				</p>
 			</div>

@@ -3,6 +3,11 @@ INSERT INTO oidc_clients (client_id, client_secret, name, redirect_uris, scopes,
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
 
+-- name: InsertOidcClientFull :one
+INSERT INTO oidc_clients (client_id, client_secret, name, redirect_uris, scopes, auth_method, grant_types, created_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
 -- name: GetOidcClient :one
 SELECT * FROM oidc_clients
 WHERE id = ? AND archived_at IS NULL;

@@ -124,40 +124,108 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	// No refresh token support for now
-	return accessTokenID, "", expiration, nil
+
+	scopes := request.GetScopes()
+	if !hasScope(scopes, oidc.ScopeOfflineAccess) {
+		return accessTokenID, "", expiration, nil
+	}
+
+	if currentRefreshToken != "" {
+		if err := s.q().DeleteRefreshTokenByToken(ctx, currentRefreshToken); err != nil {
+			return "", "", time.Time{}, errors.Wrap(err, "delete old refresh token")
+		}
+	}
+
+	refreshTokenID := uuid.NewString()
+	refreshToken := uuid.NewString()
+	refreshExpiry := time.Now().UTC().Add(30 * 24 * time.Hour)
+
+	var authTime time.Time
+	if ar, ok := request.(op.AuthRequest); ok {
+		authTime = ar.GetAuthTime()
+	} else if rt, ok := request.(op.RefreshTokenRequest); ok {
+		authTime = rt.GetAuthTime()
+	}
+
+	err = s.q().InsertRefreshToken(ctx, dbgen.InsertRefreshTokenParams{
+		ID:            refreshTokenID,
+		Token:         refreshToken,
+		AuthTime:      authTime,
+		Audience:      strings.Join(request.GetAudience(), ","),
+		UserID:        request.GetSubject(),
+		ApplicationID: clientIDFromRequest(request),
+		Scopes:        strings.Join(scopes, ","),
+		ExpiresAt:     refreshExpiry,
+	})
+	if err != nil {
+		return "", "", time.Time{}, errors.Wrap(err, "insert refresh token")
+	}
+
+	return accessTokenID, refreshToken, expiration, nil
 }
 
 func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken string) (op.RefreshTokenRequest, error) {
-	return nil, errors.New("refresh tokens not supported")
+	row, err := s.q().GetRefreshToken(ctx, refreshToken)
+	if err != nil {
+		return nil, op.ErrInvalidRefreshToken
+	}
+	return &RefreshToken{OidcRefreshToken: row}, nil
 }
 
 func (s *Storage) TerminateSession(ctx context.Context, userID, clientID string) error {
-	return s.q().DeleteAccessTokensBySubject(ctx, dbgen.DeleteAccessTokensBySubjectParams{
+	if err := s.q().DeleteAccessTokensBySubject(ctx, dbgen.DeleteAccessTokensBySubjectParams{
 		Subject:       userID,
+		ApplicationID: clientID,
+	}); err != nil {
+		return errors.Wrap(err, "delete access tokens")
+	}
+	return s.q().DeleteRefreshTokensBySubject(ctx, dbgen.DeleteRefreshTokensBySubjectParams{
+		UserID:        userID,
 		ApplicationID: clientID,
 	})
 }
 
 func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID, userID, clientID string) *oidc.Error {
 	token, err := s.q().GetAccessToken(ctx, tokenOrTokenID)
-	if err != nil {
+	if err == nil {
+		if clientID != "" && token.ApplicationID != clientID {
+			return oidc.ErrServerError().WithDescription("token does not belong to client")
+		}
+		if userID != "" && token.Subject != userID {
+			return oidc.ErrServerError().WithDescription("token does not belong to user")
+		}
+		if err := s.q().DeleteAccessToken(ctx, tokenOrTokenID); err != nil {
+			return oidc.ErrServerError().WithDescription("failed to revoke token")
+		}
 		return nil
 	}
-	if clientID != "" && token.ApplicationID != clientID {
-		return oidc.ErrServerError().WithDescription("token does not belong to client")
+
+	rt, err := s.q().GetRefreshToken(ctx, tokenOrTokenID)
+	if err == nil {
+		if clientID != "" && rt.ApplicationID != clientID {
+			return oidc.ErrServerError().WithDescription("token does not belong to client")
+		}
+		if userID != "" && rt.UserID != userID {
+			return oidc.ErrServerError().WithDescription("token does not belong to user")
+		}
+		if err := s.q().DeleteRefreshTokenByToken(ctx, tokenOrTokenID); err != nil {
+			return oidc.ErrServerError().WithDescription("failed to revoke token")
+		}
+		return nil
 	}
-	if userID != "" && token.Subject != userID {
-		return oidc.ErrServerError().WithDescription("token does not belong to user")
-	}
-	if err := s.q().DeleteAccessToken(ctx, tokenOrTokenID); err != nil {
-		return oidc.ErrServerError().WithDescription("failed to revoke token")
-	}
+
 	return nil
 }
 
 func (s *Storage) GetRefreshTokenInfo(ctx context.Context, clientID, token string) (string, string, error) {
-	return "", "", op.ErrInvalidRefreshToken
+	row, err := s.q().GetRefreshToken(ctx, token)
+	if err != nil {
+		return "", "", op.ErrInvalidRefreshToken
+	}
+	if clientID != "" && row.ApplicationID != clientID {
+		return "", "", op.ErrInvalidRefreshToken
+	}
+	return row.ID, row.UserID, nil
 }
 
 func (s *Storage) SigningKey(ctx context.Context) (op.SigningKey, error) {
@@ -291,5 +359,17 @@ func clientIDFromRequest(request op.TokenRequest) string {
 	if ar, ok := request.(op.AuthRequest); ok {
 		return ar.GetClientID()
 	}
+	if rt, ok := request.(op.RefreshTokenRequest); ok {
+		return rt.GetClientID()
+	}
 	return ""
+}
+
+func hasScope(scopes []string, target string) bool {
+	for _, s := range scopes {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }

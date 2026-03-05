@@ -86,6 +86,29 @@ func (q *Queries) DeleteRefreshToken(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteRefreshTokenByToken = `-- name: DeleteRefreshTokenByToken :exec
+DELETE FROM oidc_refresh_tokens WHERE token = ?
+`
+
+func (q *Queries) DeleteRefreshTokenByToken(ctx context.Context, token string) error {
+	_, err := q.db.ExecContext(ctx, deleteRefreshTokenByToken, token)
+	return err
+}
+
+const deleteRefreshTokensBySubject = `-- name: DeleteRefreshTokensBySubject :exec
+DELETE FROM oidc_refresh_tokens WHERE user_id = ? AND application_id = ?
+`
+
+type DeleteRefreshTokensBySubjectParams struct {
+	UserID        string `json:"user_id"`
+	ApplicationID string `json:"application_id"`
+}
+
+func (q *Queries) DeleteRefreshTokensBySubject(ctx context.Context, arg DeleteRefreshTokensBySubjectParams) error {
+	_, err := q.db.ExecContext(ctx, deleteRefreshTokensBySubject, arg.UserID, arg.ApplicationID)
+	return err
+}
+
 const getAccessToken = `-- name: GetAccessToken :one
 SELECT id, application_id, subject, audience, scopes, expires_at, created_at FROM oidc_access_tokens
 WHERE id = ? AND expires_at > CURRENT_TIMESTAMP

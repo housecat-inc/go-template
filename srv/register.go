@@ -119,13 +119,30 @@ func (s *Server) HandleRegister(c echo.Context) error {
 		req.Scope = "openid email profile"
 	}
 
-	allowed := map[string]bool{"email": true, "git": true, "openid": true, "profile": true}
+	allowed := map[string]bool{"email": true, "git": true, "offline_access": true, "openid": true, "profile": true}
+	hasOfflineAccess := false
 	for _, s := range strings.Fields(req.Scope) {
 		if !allowed[s] {
 			return c.JSON(http.StatusBadRequest, registrationError{
 				Error:            "invalid_client_metadata",
 				ErrorDescription: "invalid scope: " + s,
 			})
+		}
+		if s == "offline_access" {
+			hasOfflineAccess = true
+		}
+	}
+
+	if hasOfflineAccess {
+		hasRefreshGrant := false
+		for _, gt := range req.GrantTypes {
+			if gt == "refresh_token" {
+				hasRefreshGrant = true
+				break
+			}
+		}
+		if !hasRefreshGrant {
+			req.GrantTypes = append(req.GrantTypes, "refresh_token")
 		}
 	}
 
@@ -138,15 +155,16 @@ func (s *Server) HandleRegister(c echo.Context) error {
 		return errors.Wrap(err, "generate client secret")
 	}
 
-	// Convert space-delimited scopes (RFC) to comma-delimited (internal)
 	internalScopes := strings.ReplaceAll(req.Scope, " ", ",")
 
-	client, err := q.InsertOidcClient(ctx, dbgen.InsertOidcClientParams{
+	client, err := q.InsertOidcClientFull(ctx, dbgen.InsertOidcClientFullParams{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		Name:         req.ClientName,
 		RedirectUris: strings.Join(req.RedirectURIs, ","),
 		Scopes:       internalScopes,
+		AuthMethod:   req.TokenEndpointAuthMethod,
+		GrantTypes:   strings.Join(req.GrantTypes, ","),
 		CreatedBy:    token.Subject,
 	})
 	if err != nil {

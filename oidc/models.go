@@ -133,6 +133,25 @@ func (c *Client) AccessTokenType() op.AccessTokenType {
 	return op.AccessTokenTypeBearer
 }
 
+// RefreshToken implements op.RefreshTokenRequest backed by dbgen.OidcRefreshToken.
+type RefreshToken struct {
+	dbgen.OidcRefreshToken
+	currentScopes []string
+}
+
+func (r *RefreshToken) GetAMR() []string        { return nil }
+func (r *RefreshToken) GetAudience() []string    { return splitComma(r.Audience) }
+func (r *RefreshToken) GetAuthTime() time.Time   { return r.AuthTime }
+func (r *RefreshToken) GetClientID() string      { return r.ApplicationID }
+func (r *RefreshToken) GetScopes() []string {
+	if r.currentScopes != nil {
+		return r.currentScopes
+	}
+	return splitComma(r.Scopes)
+}
+func (r *RefreshToken) GetSubject() string       { return r.UserID }
+func (r *RefreshToken) SetCurrentScopes(scopes []string) { r.currentScopes = scopes }
+
 // signingKey implements op.SigningKey.
 type signingKey struct {
 	id  string

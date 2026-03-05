@@ -52,6 +52,12 @@ WHERE token = ? AND expires_at > CURRENT_TIMESTAMP;
 -- name: DeleteRefreshToken :exec
 DELETE FROM oidc_refresh_tokens WHERE id = ?;
 
+-- name: DeleteRefreshTokenByToken :exec
+DELETE FROM oidc_refresh_tokens WHERE token = ?;
+
+-- name: DeleteRefreshTokensBySubject :exec
+DELETE FROM oidc_refresh_tokens WHERE user_id = ? AND application_id = ?;
+
 -- name: GetLatestAuthRequestByUserAndClient :one
 SELECT * FROM oidc_auth_requests
 WHERE user_id = ? AND client_id = ? AND done = 1

@@ -136,6 +136,56 @@ func (q *Queries) InsertOidcClient(ctx context.Context, arg InsertOidcClientPara
 	return i, err
 }
 
+const insertOidcClientFull = `-- name: InsertOidcClientFull :one
+INSERT INTO oidc_clients (client_id, client_secret, name, redirect_uris, scopes, auth_method, grant_types, created_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at
+`
+
+type InsertOidcClientFullParams struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	Name         string `json:"name"`
+	RedirectUris string `json:"redirect_uris"`
+	Scopes       string `json:"scopes"`
+	AuthMethod   string `json:"auth_method"`
+	GrantTypes   string `json:"grant_types"`
+	CreatedBy    string `json:"created_by"`
+}
+
+func (q *Queries) InsertOidcClientFull(ctx context.Context, arg InsertOidcClientFullParams) (OidcClient, error) {
+	row := q.db.QueryRowContext(ctx, insertOidcClientFull,
+		arg.ClientID,
+		arg.ClientSecret,
+		arg.Name,
+		arg.RedirectUris,
+		arg.Scopes,
+		arg.AuthMethod,
+		arg.GrantTypes,
+		arg.CreatedBy,
+	)
+	var i OidcClient
+	err := row.Scan(
+		&i.ID,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.Name,
+		&i.RedirectUris,
+		&i.PostLogoutRedirectUris,
+		&i.ApplicationType,
+		&i.AuthMethod,
+		&i.ResponseTypes,
+		&i.GrantTypes,
+		&i.AccessTokenType,
+		&i.Scopes,
+		&i.CreatedBy,
+		&i.ArchivedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listOidcClients = `-- name: ListOidcClients :many
 SELECT id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at FROM oidc_clients
 WHERE archived_at IS NULL

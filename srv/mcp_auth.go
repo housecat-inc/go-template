@@ -133,6 +133,32 @@ func (s *Server) HandleMCPRegister(c echo.Context) error {
 		req.Scope = "openid email profile"
 	}
 
+	allowedScopes := map[string]bool{"email": true, "offline_access": true, "openid": true, "profile": true}
+	hasOfflineAccess := false
+	for _, s := range strings.Fields(req.Scope) {
+		if !allowedScopes[s] {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error":             "invalid_client_metadata",
+				"error_description": "invalid scope: " + s,
+			})
+		}
+		if s == "offline_access" {
+			hasOfflineAccess = true
+		}
+	}
+	if hasOfflineAccess {
+		hasRefreshGrant := false
+		for _, gt := range req.GrantTypes {
+			if gt == "refresh_token" {
+				hasRefreshGrant = true
+				break
+			}
+		}
+		if !hasRefreshGrant {
+			req.GrantTypes = append(req.GrantTypes, "refresh_token")
+		}
+	}
+
 	clientID, err := randomHex(16)
 	if err != nil {
 		return errors.Wrap(err, "generate client id")
@@ -144,12 +170,14 @@ func (s *Server) HandleMCPRegister(c echo.Context) error {
 
 	q := dbgen.New(s.DB)
 	internalScopes := strings.ReplaceAll(req.Scope, " ", ",")
-	client, err := q.InsertOidcClient(ctx, dbgen.InsertOidcClientParams{
+	client, err := q.InsertOidcClientFull(ctx, dbgen.InsertOidcClientFullParams{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		Name:         req.ClientName,
 		RedirectUris: strings.Join(req.RedirectURIs, ","),
 		Scopes:       internalScopes,
+		AuthMethod:   req.TokenEndpointAuthMethod,
+		GrantTypes:   strings.Join(req.GrantTypes, ","),
 		CreatedBy:    "mcp:dynamic",
 	})
 	if err != nil {
