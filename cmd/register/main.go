@@ -40,7 +40,11 @@ func main() {
 func run() error {
 	stepStart := time.Now()
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: register <register-url> [repo]\n  repo: GitHub org/name to clone and build (default: housecat-inc/go-template)")
+		return fmt.Errorf("usage: register <register-url> [repo]\n       register setup [repo]\n  repo: GitHub org/name to clone and build (default: housecat-inc/go-template)")
+	}
+
+	if os.Args[1] == "setup" {
+		return runSetup()
 	}
 
 	logger.Info("parsing arguments")
@@ -132,6 +136,40 @@ func run() error {
 	fmt.Printf("    App:       %s\n", appName)
 	fmt.Printf("    Repo:      %s@%s\n", repo, branch)
 	fmt.Printf("    Client ID: %s\n", clientID)
+	_ = shell("systemctl", "status", "srv", "--no-pager")
+	return nil
+}
+
+func runSetup() error {
+	repoArg := "housecat-inc/go-template"
+	if len(os.Args) >= 3 {
+		repoArg = os.Args[2]
+	}
+	repo, branch := repoArg, "main"
+	if at := strings.LastIndex(repoArg, "@"); at > 0 {
+		repo = repoArg[:at]
+		branch = repoArg[at+1:]
+	}
+	_, repoName, _ := strings.Cut(repo, "/")
+	if repoName == "" {
+		return fmt.Errorf("invalid repo %q: expected org/name[@branch]", repo)
+	}
+
+	stepStart := time.Now()
+	if err := cloneAndBuild(repo, repoName, branch); err != nil {
+		return fmt.Errorf("clone and build: %w", err)
+	}
+	logger.Info("cloned and built", "repo", repo, "branch", branch, "duration", time.Since(stepStart))
+
+	stepStart = time.Now()
+	fmt.Println("==> Restarting service...")
+	if err := sudo("systemctl", "restart", "srv"); err != nil {
+		return fmt.Errorf("restart service: %w", err)
+	}
+	logger.Info("restarted service", "duration", time.Since(stepStart))
+
+	fmt.Println("==> Done")
+	fmt.Printf("    Repo: %s@%s\n", repo, branch)
 	_ = shell("systemctl", "status", "srv", "--no-pager")
 	return nil
 }
@@ -311,7 +349,7 @@ func registerClient(token, endpoint, appName string) (string, string, string, er
 		GrantTypes:              []string{"authorization_code"},
 		ResponseTypes:           []string{"code"},
 		TokenEndpointAuthMethod: "client_secret_basic",
-		Scope:                   "openid email profile git",
+		Scope:                   "openid email profile offline_access git",
 	})
 	if err != nil {
 		return "", "", "", fmt.Errorf("marshal request: %w", err)
@@ -428,6 +466,11 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	fmt.Println("==> Installing gh wrapper...")
 	if err := shell("go", "install", "github.com/housecat-inc/go-template/cmd/gh@latest"); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: install gh wrapper: %v\n", err)
+	}
+
+	fmt.Println("==> Installing housecat CLI...")
+	if err := shell("go", "install", "github.com/housecat-inc/go-template/cmd/housecat@latest"); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: install housecat CLI: %v\n", err)
 	}
 
 	fmt.Println("==> Smoke testing git proxy...")
