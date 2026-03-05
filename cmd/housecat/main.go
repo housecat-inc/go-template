@@ -81,7 +81,7 @@ func run() error {
 
 	// If no token provided, try cache then OAuth login
 	if *token == "" {
-		if cached, ok := loadCachedToken(*serverURL); ok {
+		if cached, ok := loadCachedToken(ctx, *serverURL); ok {
 			slog.Info("using cached token")
 			*token = cached
 		} else {

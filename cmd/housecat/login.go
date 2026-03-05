@@ -22,8 +22,12 @@ import (
 
 // cachedToken is the on-disk format for a cached OAuth token.
 type cachedToken struct {
-	AccessToken string    `json:"access_token"`
-	Expiry      time.Time `json:"expiry"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	Expiry       time.Time `json:"expiry"`
+	TokenURL     string    `json:"token_url,omitempty"`
+	ClientID     string    `json:"client_id,omitempty"`
+	ClientSecret string    `json:"client_secret,omitempty"`
 }
 
 // tokenCachePath returns the path to the cached token file for a given server URL.
@@ -34,8 +38,9 @@ func tokenCachePath(serverURL string) string {
 	return filepath.Join(dir, "housecat", "tokens", name+".json")
 }
 
-// loadCachedToken loads a cached token if it exists and hasn't expired.
-func loadCachedToken(serverURL string) (string, bool) {
+// loadCachedToken loads a cached token if it exists. If the access token is
+// expired but a refresh token is available, it attempts a silent refresh.
+func loadCachedToken(ctx context.Context, serverURL string) (string, bool) {
 	data, err := os.ReadFile(tokenCachePath(serverURL))
 	if err != nil {
 		return "", false
@@ -44,21 +49,51 @@ func loadCachedToken(serverURL string) (string, bool) {
 	if err := json.Unmarshal(data, &ct); err != nil {
 		return "", false
 	}
-	// Require at least 1 minute of remaining validity
-	if time.Until(ct.Expiry) < time.Minute {
+	// If access token is still valid, use it
+	if time.Until(ct.Expiry) >= time.Minute {
+		return ct.AccessToken, true
+	}
+	// Try refresh if we have a refresh token
+	if ct.RefreshToken == "" || ct.TokenURL == "" || ct.ClientID == "" {
 		return "", false
 	}
-	return ct.AccessToken, true
+	slog.Info("access token expired, refreshing")
+	cfg := &oauth2.Config{
+		ClientID:     ct.ClientID,
+		ClientSecret: ct.ClientSecret,
+		Endpoint: oauth2.Endpoint{
+			TokenURL:  ct.TokenURL,
+			AuthStyle: oauth2.AuthStyleInParams,
+		},
+	}
+	oldToken := &oauth2.Token{
+		RefreshToken: ct.RefreshToken,
+	}
+	newToken, err := cfg.TokenSource(ctx, oldToken).Token()
+	if err != nil {
+		slog.Warn("token refresh failed", "err", err)
+		return "", false
+	}
+	saveCachedToken(serverURL, newToken, ct.TokenURL, ct.ClientID, ct.ClientSecret)
+	slog.Info("token refreshed")
+	return newToken.AccessToken, true
 }
 
 // saveCachedToken saves a token to the cache.
-func saveCachedToken(serverURL, accessToken string, expiry time.Time) {
+func saveCachedToken(serverURL string, token *oauth2.Token, tokenURL, clientID, clientSecret string) {
 	path := tokenCachePath(serverURL)
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		slog.Warn("could not create token cache dir", "err", err)
 		return
 	}
-	ct := cachedToken{AccessToken: accessToken, Expiry: expiry}
+	ct := cachedToken{
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		Expiry:       token.Expiry,
+		TokenURL:     tokenURL,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+	}
 	data, err := json.Marshal(ct)
 	if err != nil {
 		return
@@ -108,7 +143,7 @@ func login(ctx context.Context, serverURL string) (string, error) {
 			AuthStyle: oauth2.AuthStyleInParams,
 		},
 		RedirectURL: redirectURL,
-		Scopes:      []string{"openid", "email", "profile"},
+		Scopes:      []string{"openid", "email", "profile", "offline_access"},
 	}
 
 	// Generate PKCE verifier and state
@@ -165,7 +200,7 @@ func login(ctx context.Context, serverURL string) (string, error) {
 		return "", fmt.Errorf("token exchange: %w", err)
 	}
 
-	saveCachedToken(serverURL, token.AccessToken, token.Expiry)
+	saveCachedToken(serverURL, token, oidcConfig.TokenEndpoint, clientID, clientSecret)
 	slog.Info("login successful")
 	return token.AccessToken, nil
 }
