@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -227,89 +226,13 @@ func serviceSetup(dir string) error {
 		return fmt.Errorf("go mod download: %w", err)
 	}
 
-	// Run generators in parallel (templ, sqlc, tailwindcss are independent)
-	fmt.Println("==> Running generators in parallel...")
-	type generator struct {
-		name string
-		cmd  *exec.Cmd
-	}
-	gens := []generator{
-		{"templ", dirCmd(filepath.Join(dir, "ui"), "go", "tool", "templ", "generate")},
-		{"sqlc", dirCmd(filepath.Join(dir, "db"), "go", "tool", "github.com/sqlc-dev/sqlc/cmd/sqlc", "generate")},
-		{"tailwindcss", dirCmd(filepath.Join(dir, "assets"), "tailwindcss", "-i", "css/input.css", "-o", "css/output.css", "--minify")},
-	}
-
-	var mu sync.Mutex
-	var errs []error
-	var wg sync.WaitGroup
-	for _, g := range gens {
-		wg.Add(1)
-		go func(g generator) {
-			defer wg.Done()
-			start := time.Now()
-			out, err := g.cmd.CombinedOutput()
-			mu.Lock()
-			defer mu.Unlock()
-			if len(out) > 0 {
-				fmt.Printf("    [%s] %s", g.name, out)
-			}
-			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", g.name, err))
-			} else {
-				fmt.Printf("    [%s] done (%s)\n", g.name, time.Since(start).Round(time.Millisecond))
-			}
-		}(g)
-	}
-	wg.Wait()
-	if len(errs) > 0 {
-		return fmt.Errorf("generate failed: %v", errs)
-	}
-
-	// Build
-	fmt.Println("==> Building...")
-	build := dirCmd(dir, "go", "build", "-o", "bin/srv", "./cmd/srv")
-	build.Stdout = os.Stdout
-	build.Stderr = os.Stderr
-	if err := build.Run(); err != nil {
-		return fmt.Errorf("go build: %w", err)
-	}
-
-	// Install binary
-	fmt.Println("==> Installing binary...")
-	for _, args := range [][]string{
-		{"mkdir", "-p", "/opt/srv/bin", "/opt/srv/data"},
-		{"rm", "-f", "/opt/srv/bin/srv"},
-		{"cp", filepath.Join(dir, "bin/srv"), "/opt/srv/bin/srv"},
-		{"chown", "root:root", "/opt/srv/bin/srv"},
-		{"chmod", "0755", "/opt/srv/bin/srv"},
-		{"chown", "-R", "exedev:exedev", "/opt/srv/data"},
-		{"chmod", "0700", "/opt/srv/data"},
-	} {
-		if err := sudo(args...); err != nil {
-			return fmt.Errorf("install: %w", err)
-		}
-	}
-
-	// Copy .env if it exists
-	home, _ := os.UserHomeDir()
-	envFile := filepath.Join(home, ".env")
-	if _, err := os.Stat(envFile); err == nil {
-		_ = sudo("cp", envFile, "/opt/srv/data/.env")
-		_ = sudo("chown", "exedev:exedev", "/opt/srv/data/.env")
-		_ = sudo("chmod", "0600", "/opt/srv/data/.env")
-	}
-
-	// Install systemd unit
-	fmt.Println("==> Installing systemd unit...")
-	svcFile := filepath.Join(dir, "srv.service")
-	if err := sudo("cp", svcFile, "/etc/systemd/system/srv.service"); err != nil {
-		return fmt.Errorf("copy service file: %w", err)
-	}
-	if err := sudo("systemctl", "daemon-reload"); err != nil {
-		return fmt.Errorf("daemon-reload: %w", err)
-	}
-	if err := sudo("systemctl", "enable", "srv.service"); err != nil {
-		return fmt.Errorf("enable service: %w", err)
+	// Run make install (generate, build, install binary, systemd unit)
+	fmt.Println("==> Running make install...")
+	makeInstall := dirCmd(dir, "make", "install")
+	makeInstall.Stdout = os.Stdout
+	makeInstall.Stderr = os.Stderr
+	if err := makeInstall.Run(); err != nil {
+		return fmt.Errorf("make install: %w", err)
 	}
 
 	return nil
