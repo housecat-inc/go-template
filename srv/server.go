@@ -52,6 +52,8 @@ func (s *Server) Serve(addr string) error {
 	e.HideBanner = true
 	e.HidePort = true
 
+	e.Use(RequestLogger())
+
 	e.GET("/", s.HandleRoot)
 	e.GET("/home", s.HandleHome, s.RequireAuth)
 	e.GET("/auth/exedev", s.HandleAuthExeDev)
