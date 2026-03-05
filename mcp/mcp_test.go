@@ -36,13 +36,19 @@ func TestConnections(t *testing.T) {
 
 	tools, err := session.ListTools(ctx, nil)
 	a.NoError(err)
-	a.GreaterOrEqual(len(tools.Tools), 7)
+	a.GreaterOrEqual(len(tools.Tools), 13)
 
 	toolNames := make([]string, len(tools.Tools))
 	for i, t := range tools.Tools {
 		toolNames[i] = t.Name
 	}
 	a.Contains(toolNames, "connections")
+	a.Contains(toolNames, "gmail_create_draft")
+	a.Contains(toolNames, "gmail_get_thread")
+	a.Contains(toolNames, "gmail_list_labels")
+	a.Contains(toolNames, "gmail_list_messages")
+	a.Contains(toolNames, "gmail_read_message")
+	a.Contains(toolNames, "gmail_send_message")
 	a.Contains(toolNames, "slack_draft_message")
 	a.Contains(toolNames, "slack_get_channel_history")
 	a.Contains(toolNames, "slack_list_channels")
@@ -70,6 +76,30 @@ func TestConnections(t *testing.T) {
 		}
 	}
 	a.Equal([]string{"gcal", "gdrive", "gmail", "granola", "notion", "slack"}, ids)
+}
+
+func TestGmailToolsRequireAuth(t *testing.T) {
+	a := assert.New(t)
+	ctx := context.Background()
+
+	server := NewServer("https://example.com", stubLookup(nil), nil)
+	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
+
+	_, err := server.Connect(ctx, serverTransport, nil)
+	a.NoError(err)
+
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	a.NoError(err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
+		Name:      "gmail_list_messages",
+		Arguments: map[string]any{},
+	})
+	a.NoError(err)
+	a.True(res.IsError)
+	a.Contains(res.Content[0].(*gomcp.TextContent).Text, "not authenticated")
 }
 
 func TestSlackToolsRequireAuth(t *testing.T) {

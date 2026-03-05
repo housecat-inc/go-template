@@ -119,32 +119,52 @@ func userFromRequest(req *gomcp.CallToolRequest) *UserIdentity {
 	return u
 }
 
-func slackClientFromRequest(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, minLevel string) (*SlackClient, error) {
+func levelFallback(minLevel string) []string {
+	switch minLevel {
+	case "read":
+		return []string{"read", "draft", "write"}
+	case "draft":
+		return []string{"draft", "write"}
+	default:
+		return []string{minLevel}
+	}
+}
+
+func tokenForService(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, service, minLevel string) (string, error) {
 	userID := userIDFromRequest(req)
 	if userID == "" {
-		return nil, errors.New("not authenticated")
+		return "", errors.New("not authenticated")
 	}
 
-	levels := []string{minLevel}
-	if minLevel == "read" {
-		levels = []string{"read", "draft", "write"}
-	} else if minLevel == "draft" {
-		levels = []string{"draft", "write"}
-	}
-
-	for _, level := range levels {
-		token, err := lookup(ctx, userID, "slack", level)
+	for _, level := range levelFallback(minLevel) {
+		token, err := lookup(ctx, userID, service, level)
 		if err != nil {
 			if errors.Is(err, ErrTokenNotFound) {
 				continue
 			}
-			return nil, errors.Wrap(err, "token lookup")
+			return "", errors.Wrap(err, "token lookup")
 		}
 		if token != "" {
-			return &SlackClient{Token: token}, nil
+			return token, nil
 		}
 	}
-	return nil, errors.Newf("slack not connected — connect at %s level or higher via the connections page", minLevel)
+	return "", errors.Newf("%s not connected — connect at %s level or higher via the connections page", service, minLevel)
+}
+
+func slackClientFromRequest(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, minLevel string) (*SlackClient, error) {
+	token, err := tokenForService(ctx, req, lookup, "slack", minLevel)
+	if err != nil {
+		return nil, err
+	}
+	return &SlackClient{Token: token}, nil
+}
+
+func gmailClientFromRequest(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, minLevel string) (*GmailClient, error) {
+	token, err := tokenForService(ctx, req, lookup, "gmail", minLevel)
+	if err != nil {
+		return nil, err
+	}
+	return &GmailClient{Token: token}, nil
 }
 
 func textResult(v any) (*gomcp.CallToolResult, error) {
@@ -332,6 +352,143 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup)
 			return errResult(err.Error())
 		}
 		out, err := client.GetUserProfile(ctx, input.UserID)
+		if err != nil {
+			return errResult(err.Error())
+		}
+		result, err := textResult(out)
+		return result, nil, err
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_list_messages",
+		Description: "List or search Gmail messages. Uses Gmail search syntax (e.g. 'from:user@example.com subject:hello is:unread'). Requires Gmail read connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		MaxResults int    `json:"max_results,omitempty" jsonschema:"Max messages to return (default 10)"`
+		PageToken  string `json:"page_token,omitempty" jsonschema:"Pagination token from previous response"`
+		Query      string `json:"query,omitempty" jsonschema:"Gmail search query"`
+	}) (*gomcp.CallToolResult, any, error) {
+		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := client.ListMessages(ctx, input.Query, input.MaxResults, input.PageToken)
+		if err != nil {
+			return errResult(err.Error())
+		}
+		result, err := textResult(out)
+		return result, nil, err
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_read_message",
+		Description: "Read the full content of a Gmail message by ID. Requires Gmail read connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		MessageID string `json:"message_id" jsonschema:"Gmail message ID"`
+	}) (*gomcp.CallToolResult, any, error) {
+		if input.MessageID == "" {
+			return errResult("message_id is required")
+		}
+		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := client.ReadMessage(ctx, input.MessageID)
+		if err != nil {
+			return errResult(err.Error())
+		}
+		result, err := textResult(out)
+		return result, nil, err
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_get_thread",
+		Description: "Get all messages in a Gmail thread by thread ID. Requires Gmail read connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		ThreadID string `json:"thread_id" jsonschema:"Gmail thread ID"`
+	}) (*gomcp.CallToolResult, any, error) {
+		if input.ThreadID == "" {
+			return errResult("thread_id is required")
+		}
+		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := client.GetThread(ctx, input.ThreadID)
+		if err != nil {
+			return errResult(err.Error())
+		}
+		result, err := textResult(out)
+		return result, nil, err
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_list_labels",
+		Description: "List all Gmail labels (inbox, sent, custom labels, etc.). Requires Gmail read connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct{}) (*gomcp.CallToolResult, any, error) {
+		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := client.ListLabels(ctx)
+		if err != nil {
+			return errResult(err.Error())
+		}
+		result, err := textResult(out)
+		return result, nil, err
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_create_draft",
+		Description: "Create a draft email for review before sending. Requires Gmail draft connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		Body    string `json:"body" jsonschema:"Email body text"`
+		Subject string `json:"subject" jsonschema:"Email subject line"`
+		To      string `json:"to" jsonschema:"Recipient email address"`
+	}) (*gomcp.CallToolResult, any, error) {
+		if input.To == "" {
+			return errResult("to is required")
+		}
+		if input.Subject == "" {
+			return errResult("subject is required")
+		}
+		if input.Body == "" {
+			return errResult("body is required")
+		}
+		client, err := gmailClientFromRequest(ctx, req, lookup, "draft")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := client.CreateDraft(ctx, input.To, input.Subject, input.Body)
+		if err != nil {
+			return errResult(err.Error())
+		}
+		result, err := textResult(out)
+		return result, nil, err
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_send_message",
+		Description: "Send an email via Gmail. Optionally reply to a thread. Requires Gmail write connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		Body     string `json:"body" jsonschema:"Email body text"`
+		Subject  string `json:"subject" jsonschema:"Email subject line"`
+		ThreadID string `json:"thread_id,omitempty" jsonschema:"Thread ID to reply to (optional)"`
+		To       string `json:"to" jsonschema:"Recipient email address"`
+	}) (*gomcp.CallToolResult, any, error) {
+		if input.To == "" {
+			return errResult("to is required")
+		}
+		if input.Subject == "" {
+			return errResult("subject is required")
+		}
+		if input.Body == "" {
+			return errResult("body is required")
+		}
+		client, err := gmailClientFromRequest(ctx, req, lookup, "write")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := client.SendMessage(ctx, input.To, input.Subject, input.Body, input.ThreadID)
 		if err != nil {
 			return errResult(err.Error())
 		}
