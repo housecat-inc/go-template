@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/cockroachdb/errors"
 )
@@ -21,18 +23,18 @@ type GmailClient struct {
 }
 
 type GmailMessage struct {
-	ID        string              `json:"id"`
-	HistoryID string              `json:"historyId,omitempty"`
-	Labels    []string            `json:"labelIds,omitempty"`
-	Payload   *GmailMessagePart   `json:"payload,omitempty"`
-	Snippet   string              `json:"snippet,omitempty"`
-	ThreadID  string              `json:"threadId,omitempty"`
+	ID        string            `json:"id"`
+	HistoryID string            `json:"historyId,omitempty"`
+	Labels    []string          `json:"labelIds,omitempty"`
+	Payload   *GmailMessagePart `json:"payload,omitempty"`
+	Snippet   string            `json:"snippet,omitempty"`
+	ThreadID  string            `json:"threadId,omitempty"`
 }
 
 type GmailMessagePart struct {
-	Body    *GmailMessageBody   `json:"body,omitempty"`
-	Headers []GmailHeader        `json:"headers,omitempty"`
-	Parts   []GmailMessagePart   `json:"parts,omitempty"`
+	Body    *GmailMessageBody  `json:"body,omitempty"`
+	Headers []GmailHeader      `json:"headers,omitempty"`
+	Parts   []GmailMessagePart `json:"parts,omitempty"`
 }
 
 type GmailMessageBody struct {
@@ -62,6 +64,13 @@ type GmailDraft struct {
 	Message GmailMessage `json:"message"`
 }
 
+type GmailProfile struct {
+	EmailAddress  string `json:"emailAddress"`
+	HistoryID     string `json:"historyId"`
+	MessagesTotal int    `json:"messagesTotal"`
+	ThreadsTotal  int    `json:"threadsTotal"`
+}
+
 func (c *GmailClient) do(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (json.RawMessage, error) {
 	apiURL := gmailAPIBase + path
 	if len(query) > 0 {
@@ -78,8 +87,11 @@ func (c *GmailClient) do(ctx context.Context, method, path string, query url.Val
 		req.Header.Set("Content-Type", contentType)
 	}
 
+	start := time.Now()
 	resp, err := http.DefaultClient.Do(req)
+	latency := time.Since(start)
 	if err != nil {
+		slog.Error("gmail api request failed", "method", method, "path", path, "latency", latency.Round(time.Millisecond).String(), "error", err)
 		return nil, errors.Wrap(err, "gmail api request")
 	}
 	defer resp.Body.Close()
@@ -95,12 +107,15 @@ func (c *GmailClient) do(ctx context.Context, method, path string, query url.Val
 				Message string `json:"message"`
 			} `json:"error"`
 		}
+		errMsg := string(data)
 		if json.Unmarshal(data, &apiErr) == nil && apiErr.Error.Message != "" {
-			return nil, errors.Newf("gmail api error (%d): %s", resp.StatusCode, apiErr.Error.Message)
+			errMsg = apiErr.Error.Message
 		}
-		return nil, errors.Newf("gmail api error (%d): %s", resp.StatusCode, string(data))
+		slog.Warn("gmail api error", "method", method, "path", path, "status", resp.StatusCode, "error", errMsg, "latency", latency.Round(time.Millisecond).String())
+		return nil, errors.Newf("gmail api error (%d): %s", resp.StatusCode, errMsg)
 	}
 
+	slog.Info("gmail api ok", "method", method, "path", path, "status", resp.StatusCode, "latency", latency.Round(time.Millisecond).String())
 	return json.RawMessage(data), nil
 }
 
@@ -168,21 +183,35 @@ func extractBody(part *GmailMessagePart) string {
 	return ""
 }
 
-type ListMessagesOut struct {
+type GetProfileOut = GmailProfile
+
+func (c *GmailClient) GetProfile(ctx context.Context) (GetProfileOut, error) {
+	var out GetProfileOut
+	data, err := c.get(ctx, "/profile", nil)
+	if err != nil {
+		return out, errors.Wrap(err, "get profile")
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, errors.Wrap(err, "decode profile")
+	}
+	return out, nil
+}
+
+type GmailSearchMessagesOut struct {
 	Messages       []MessageSummary `json:"messages"`
 	NextPageToken  string           `json:"next_page_token,omitempty"`
 	ResultEstimate int              `json:"result_size_estimate"`
 }
 
-const maxListMessages = 25
+const maxSearchMessages = 500
 
-func (c *GmailClient) ListMessages(ctx context.Context, query string, maxResults int, pageToken string) (ListMessagesOut, error) {
-	var out ListMessagesOut
+func (c *GmailClient) SearchMessages(ctx context.Context, query string, maxResults int, pageToken string, includeSpamTrash bool) (GmailSearchMessagesOut, error) {
+	var out GmailSearchMessagesOut
 	if maxResults <= 0 {
-		maxResults = 10
+		maxResults = 20
 	}
-	if maxResults > maxListMessages {
-		maxResults = maxListMessages
+	if maxResults > maxSearchMessages {
+		maxResults = maxSearchMessages
 	}
 
 	params := url.Values{
@@ -194,16 +223,19 @@ func (c *GmailClient) ListMessages(ctx context.Context, query string, maxResults
 	if pageToken != "" {
 		params.Set("pageToken", pageToken)
 	}
+	if includeSpamTrash {
+		params.Set("includeSpamTrash", "true")
+	}
 
 	data, err := c.get(ctx, "/messages", params)
 	if err != nil {
-		return out, errors.Wrap(err, "list messages")
+		return out, errors.Wrap(err, "search messages")
 	}
 
 	var resp struct {
-		Messages          []struct{ ID string `json:"id"` } `json:"messages"`
-		NextPageToken     string                             `json:"nextPageToken"`
-		ResultSizeEstimate int                               `json:"resultSizeEstimate"`
+		Messages           []struct{ ID string `json:"id"` } `json:"messages"`
+		NextPageToken      string                             `json:"nextPageToken"`
+		ResultSizeEstimate int                                `json:"resultSizeEstimate"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return out, errors.Wrap(err, "decode list")
@@ -313,6 +345,52 @@ func (c *GmailClient) GetThread(ctx context.Context, threadID string) (GetThread
 	return out, nil
 }
 
+type ListDraftsOut struct {
+	Drafts        []DraftSummary `json:"drafts"`
+	NextPageToken string         `json:"next_page_token,omitempty"`
+}
+
+type DraftSummary struct {
+	ID        string `json:"id"`
+	MessageID string `json:"message_id"`
+}
+
+func (c *GmailClient) ListDrafts(ctx context.Context, maxResults int, pageToken string) (ListDraftsOut, error) {
+	var out ListDraftsOut
+	if maxResults <= 0 {
+		maxResults = 20
+	}
+
+	params := url.Values{
+		"maxResults": {fmt.Sprintf("%d", maxResults)},
+	}
+	if pageToken != "" {
+		params.Set("pageToken", pageToken)
+	}
+
+	data, err := c.get(ctx, "/drafts", params)
+	if err != nil {
+		return out, errors.Wrap(err, "list drafts")
+	}
+
+	var resp struct {
+		Drafts        []GmailDraft `json:"drafts"`
+		NextPageToken string       `json:"nextPageToken"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return out, errors.Wrap(err, "decode drafts")
+	}
+
+	out.NextPageToken = resp.NextPageToken
+	for _, d := range resp.Drafts {
+		out.Drafts = append(out.Drafts, DraftSummary{
+			ID:        d.ID,
+			MessageID: d.Message.ID,
+		})
+	}
+	return out, nil
+}
+
 type ListLabelsOut struct {
 	Labels []GmailLabel `json:"labels"`
 }
@@ -334,6 +412,16 @@ func (c *GmailClient) ListLabels(ctx context.Context) (ListLabelsOut, error) {
 	return out, nil
 }
 
+type CreateDraftIn struct {
+	Bcc         string `json:"bcc,omitempty"`
+	Body        string `json:"body"`
+	Cc          string `json:"cc,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Subject     string `json:"subject,omitempty"`
+	ThreadID    string `json:"threadId,omitempty"`
+	To          string `json:"to"`
+}
+
 type CreateDraftOut struct {
 	DraftID   string `json:"draft_id"`
 	MessageID string `json:"message_id"`
@@ -345,29 +433,41 @@ func sanitizeHeader(v string) string {
 	return v
 }
 
-func buildRawMessage(to, subject, body string, extraHeaders map[string]string) string {
+func buildRawMessage(to, subject, body, cc, bcc, contentType string, extraHeaders map[string]string) string {
+	if contentType == "" {
+		contentType = "text/plain"
+	}
 	var buf strings.Builder
-	buf.WriteString("To: " + sanitizeHeader(to) + "\r\n")
-	buf.WriteString("Subject: " + sanitizeHeader(subject) + "\r\n")
+	if bcc != "" {
+		buf.WriteString("Bcc: " + sanitizeHeader(bcc) + "\r\n")
+	}
+	if cc != "" {
+		buf.WriteString("Cc: " + sanitizeHeader(cc) + "\r\n")
+	}
+	buf.WriteString("Content-Type: " + sanitizeHeader(contentType) + "; charset=UTF-8\r\n")
 	for k, v := range extraHeaders {
 		buf.WriteString(sanitizeHeader(k) + ": " + sanitizeHeader(v) + "\r\n")
 	}
-	buf.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	buf.WriteString("Subject: " + sanitizeHeader(subject) + "\r\n")
+	buf.WriteString("To: " + sanitizeHeader(to) + "\r\n")
 	buf.WriteString("\r\n")
 	buf.WriteString(body)
 	return buf.String()
 }
 
-func (c *GmailClient) CreateDraft(ctx context.Context, to, subject, body string) (CreateDraftOut, error) {
+func (c *GmailClient) CreateDraft(ctx context.Context, in CreateDraftIn) (CreateDraftOut, error) {
 	var out CreateDraftOut
 
-	raw := buildRawMessage(to, subject, body, nil)
+	raw := buildRawMessage(in.To, in.Subject, in.Body, in.Cc, in.Bcc, in.ContentType, nil)
 	encoded := base64.URLEncoding.EncodeToString([]byte(raw))
 
 	payload := map[string]any{
 		"message": map[string]any{
 			"raw": encoded,
 		},
+	}
+	if in.ThreadID != "" {
+		payload["message"].(map[string]any)["threadId"] = in.ThreadID
 	}
 
 	data, err := c.post(ctx, "/drafts", nil, payload)
@@ -384,9 +484,20 @@ func (c *GmailClient) CreateDraft(ctx context.Context, to, subject, body string)
 	return out, nil
 }
 
+type SendMessageIn struct {
+	Bcc         string `json:"bcc,omitempty"`
+	Body        string `json:"body,omitempty"`
+	Cc          string `json:"cc,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	DraftID     string `json:"draftId,omitempty"`
+	Subject     string `json:"subject,omitempty"`
+	ThreadID    string `json:"threadId,omitempty"`
+	To          string `json:"to,omitempty"`
+}
+
 type SendMessageOut struct {
 	ID       string   `json:"id"`
-	LabelIDs []string `json:"label_ids"`
+	LabelIDs []string `json:"label_ids,omitempty"`
 	ThreadID string   `json:"thread_id"`
 }
 
@@ -417,29 +528,43 @@ func (c *GmailClient) getThreadReplyHeaders(ctx context.Context, threadID string
 	return nil
 }
 
-func (c *GmailClient) SendMessage(ctx context.Context, to, subject, body, threadID string) (SendMessageOut, error) {
+func (c *GmailClient) SendDraft(ctx context.Context, draftID string) (SendMessageOut, error) {
+	var out SendMessageOut
+	payload := map[string]any{"id": draftID}
+	data, err := c.post(ctx, "/drafts/send", nil, payload)
+	if err != nil {
+		return out, errors.Wrap(err, "send draft")
+	}
+	var msg GmailMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return out, errors.Wrap(err, "decode sent message")
+	}
+	out.ID = msg.ID
+	out.LabelIDs = msg.Labels
+	out.ThreadID = msg.ThreadID
+	return out, nil
+}
+
+func (c *GmailClient) SendMessage(ctx context.Context, in SendMessageIn) (SendMessageOut, error) {
 	var out SendMessageOut
 
 	var extraHeaders map[string]string
-	if threadID != "" {
-		extraHeaders = c.getThreadReplyHeaders(ctx, threadID)
+	if in.ThreadID != "" {
+		extraHeaders = c.getThreadReplyHeaders(ctx, in.ThreadID)
 	}
 
-	raw := buildRawMessage(to, subject, body, extraHeaders)
+	raw := buildRawMessage(in.To, in.Subject, in.Body, in.Cc, in.Bcc, in.ContentType, extraHeaders)
 	encoded := base64.URLEncoding.EncodeToString([]byte(raw))
 
-	payload := map[string]any{
-		"raw": encoded,
-	}
-	if threadID != "" {
-		payload["threadId"] = threadID
+	payload := map[string]any{"raw": encoded}
+	if in.ThreadID != "" {
+		payload["threadId"] = in.ThreadID
 	}
 
 	data, err := c.post(ctx, "/messages/send", nil, payload)
 	if err != nil {
 		return out, errors.Wrap(err, "send message")
 	}
-
 	var msg GmailMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return out, errors.Wrap(err, "decode sent message")

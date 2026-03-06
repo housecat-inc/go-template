@@ -1,0 +1,266 @@
+package mcp
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+
+	"github.com/cockroachdb/errors"
+)
+
+const gcalAPIBase = "https://www.googleapis.com/calendar/v3"
+
+type GCalClient struct {
+	Token string
+}
+
+type GCalAttendee struct {
+	Email          string `json:"email"`
+	ResponseStatus string `json:"responseStatus,omitempty"`
+}
+
+type GCalCalendar struct {
+	AccessRole  string `json:"accessRole,omitempty"`
+	Description string `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Primary     bool   `json:"primary,omitempty"`
+	Summary     string `json:"summary,omitempty"`
+	TimeZone    string `json:"timeZone,omitempty"`
+}
+
+type GCalDateTime struct {
+	Date     string `json:"date,omitempty"`
+	DateTime string `json:"dateTime,omitempty"`
+	TimeZone string `json:"timeZone,omitempty"`
+}
+
+type GCalEvent struct {
+	Attendees   []GCalAttendee `json:"attendees,omitempty"`
+	Description string         `json:"description,omitempty"`
+	End         *GCalDateTime  `json:"end,omitempty"`
+	HtmlLink    string         `json:"htmlLink,omitempty"`
+	ID          string         `json:"id,omitempty"`
+	Location    string         `json:"location,omitempty"`
+	Start       *GCalDateTime  `json:"start,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	Summary     string         `json:"summary,omitempty"`
+}
+
+func (c *GCalClient) do(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (json.RawMessage, error) {
+	apiURL := gcalAPIBase + path
+	if len(query) > 0 {
+		apiURL += "?" + query.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, apiURL, body)
+	if err != nil {
+		return nil, errors.Wrap(err, "create request")
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "gcal api request")
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read response")
+	}
+
+	if resp.StatusCode >= 400 {
+		var apiErr struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(data, &apiErr) == nil && apiErr.Error.Message != "" {
+			return nil, errors.Newf("gcal api error (%d): %s", resp.StatusCode, apiErr.Error.Message)
+		}
+		return nil, errors.Newf("gcal api error (%d): %s", resp.StatusCode, string(data))
+	}
+
+	return json.RawMessage(data), nil
+}
+
+func (c *GCalClient) get(ctx context.Context, path string, query url.Values) (json.RawMessage, error) {
+	return c.do(ctx, http.MethodGet, path, query, nil, "")
+}
+
+func (c *GCalClient) post(ctx context.Context, path string, query url.Values, payload any) (json.RawMessage, error) {
+	var body io.Reader
+	var ct string
+	if payload != nil {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return nil, errors.Wrap(err, "marshal payload")
+		}
+		body = bytes.NewReader(data)
+		ct = "application/json"
+	}
+	return c.do(ctx, http.MethodPost, path, query, body, ct)
+}
+
+type ListCalendarsOut struct {
+	Calendars []GCalCalendar `json:"calendars"`
+}
+
+func (c *GCalClient) ListCalendars(ctx context.Context) (ListCalendarsOut, error) {
+	var out ListCalendarsOut
+	data, err := c.get(ctx, "/users/me/calendarList", nil)
+	if err != nil {
+		return out, errors.Wrap(err, "list calendars")
+	}
+
+	var resp struct {
+		Items []GCalCalendar `json:"items"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return out, errors.Wrap(err, "decode calendars")
+	}
+	out.Calendars = resp.Items
+	return out, nil
+}
+
+type ListEventsOut struct {
+	Events        []GCalEvent `json:"events"`
+	NextPageToken string      `json:"next_page_token,omitempty"`
+}
+
+const maxListEvents = 50
+
+func (c *GCalClient) ListEvents(ctx context.Context, calendarID, timeMin, timeMax string, maxResults int, pageToken, query string) (ListEventsOut, error) {
+	var out ListEventsOut
+	if calendarID == "" {
+		calendarID = "primary"
+	}
+	if maxResults <= 0 {
+		maxResults = 25
+	}
+	if maxResults > maxListEvents {
+		maxResults = maxListEvents
+	}
+
+	params := url.Values{
+		"maxResults":   {fmt.Sprintf("%d", maxResults)},
+		"singleEvents": {"true"},
+		"orderBy":      {"startTime"},
+	}
+	if timeMin != "" {
+		params.Set("timeMin", timeMin)
+	}
+	if timeMax != "" {
+		params.Set("timeMax", timeMax)
+	}
+	if pageToken != "" {
+		params.Set("pageToken", pageToken)
+	}
+	if query != "" {
+		params.Set("q", query)
+	}
+
+	data, err := c.get(ctx, "/calendars/"+url.PathEscape(calendarID)+"/events", params)
+	if err != nil {
+		return out, errors.Wrap(err, "list events")
+	}
+
+	var resp struct {
+		Items         []GCalEvent `json:"items"`
+		NextPageToken string      `json:"nextPageToken"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return out, errors.Wrap(err, "decode events")
+	}
+	out.Events = resp.Items
+	out.NextPageToken = resp.NextPageToken
+	return out, nil
+}
+
+type GetEventOut = GCalEvent
+
+func (c *GCalClient) GetEvent(ctx context.Context, calendarID, eventID string) (GetEventOut, error) {
+	var out GetEventOut
+	if calendarID == "" {
+		calendarID = "primary"
+	}
+
+	data, err := c.get(ctx, "/calendars/"+url.PathEscape(calendarID)+"/events/"+url.PathEscape(eventID), nil)
+	if err != nil {
+		return out, errors.Wrap(err, "get event")
+	}
+
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, errors.Wrap(err, "decode event")
+	}
+	return out, nil
+}
+
+type CreateEventOut = GCalEvent
+
+func (c *GCalClient) CreateEvent(ctx context.Context, calendarID, summary, description, start, end string, attendees []string, location string) (CreateEventOut, error) {
+	var out CreateEventOut
+	if calendarID == "" {
+		calendarID = "primary"
+	}
+
+	event := map[string]any{
+		"summary": summary,
+		"start":   map[string]string{"dateTime": start},
+		"end":     map[string]string{"dateTime": end},
+	}
+	if description != "" {
+		event["description"] = description
+	}
+	if location != "" {
+		event["location"] = location
+	}
+	if len(attendees) > 0 {
+		attendeeList := make([]map[string]string, len(attendees))
+		for i, email := range attendees {
+			attendeeList[i] = map[string]string{"email": email}
+		}
+		event["attendees"] = attendeeList
+	}
+
+	data, err := c.post(ctx, "/calendars/"+url.PathEscape(calendarID)+"/events", nil, event)
+	if err != nil {
+		return out, errors.Wrap(err, "create event")
+	}
+
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, errors.Wrap(err, "decode created event")
+	}
+	return out, nil
+}
+
+type QuickAddOut = GCalEvent
+
+func (c *GCalClient) QuickAdd(ctx context.Context, calendarID, text string) (QuickAddOut, error) {
+	var out QuickAddOut
+	if calendarID == "" {
+		calendarID = "primary"
+	}
+
+	params := url.Values{
+		"text": {text},
+	}
+
+	data, err := c.post(ctx, "/calendars/"+url.PathEscape(calendarID)+"/events/quickAdd", params, nil)
+	if err != nil {
+		return out, errors.Wrap(err, "quick add event")
+	}
+
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, errors.Wrap(err, "decode quick add event")
+	}
+	return out, nil
+}

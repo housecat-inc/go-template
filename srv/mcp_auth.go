@@ -3,7 +3,9 @@ package srv
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -18,19 +20,27 @@ import (
 func (s *Server) verifyMCPToken(ctx context.Context, token string, req *http.Request) (*mcpauth.TokenInfo, error) {
 	decrypted, err := s.oidcCrypto.Decrypt(token)
 	if err != nil {
+		slog.Warn("mcp auth: decrypt failed", "error", err)
 		return nil, mcpauth.ErrInvalidToken
 	}
 	tokenID, _, ok := strings.Cut(decrypted, ":")
 	if !ok {
+		slog.Warn("mcp auth: malformed token")
 		return nil, mcpauth.ErrInvalidToken
 	}
 	q := dbgen.New(s.DB)
 	row, err := q.GetAccessToken(ctx, tokenID)
 	if err != nil {
+		if s.accessTokenExists(ctx, tokenID) {
+			slog.Warn("mcp auth: token expired", "tokenID", tokenID)
+			return nil, fmt.Errorf("token expired: use refresh_token to obtain a new access token: %w", mcpauth.ErrInvalidToken)
+		}
+		slog.Warn("mcp auth: token not found", "tokenID", tokenID, "error", err)
 		return nil, mcpauth.ErrInvalidToken
 	}
 	if row.ExpiresAt.Before(time.Now()) {
-		return nil, mcpauth.ErrInvalidToken
+		slog.Warn("mcp auth: token expired", "tokenID", tokenID, "subject", row.Subject, "expired_at", row.ExpiresAt)
+		return nil, fmt.Errorf("token expired: use refresh_token to obtain a new access token: %w", mcpauth.ErrInvalidToken)
 	}
 
 	email, _ := q.GetEmailByUserID(ctx, row.Subject)
@@ -42,6 +52,12 @@ func (s *Server) verifyMCPToken(ctx context.Context, token string, req *http.Req
 		Scopes:     scopes,
 		UserID:     row.Subject,
 	}, nil
+}
+
+func (s *Server) accessTokenExists(ctx context.Context, tokenID string) bool {
+	var exists bool
+	_ = s.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM oidc_access_tokens WHERE id = ?)", tokenID).Scan(&exists)
+	return exists
 }
 
 func (s *Server) handleDiscoveryWithRegistration(oidcHandler http.Handler) echo.HandlerFunc {

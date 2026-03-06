@@ -36,25 +36,54 @@ func TestConnections(t *testing.T) {
 
 	tools, err := session.ListTools(ctx, nil)
 	a.NoError(err)
-	a.GreaterOrEqual(len(tools.Tools), 13)
+	a.GreaterOrEqual(len(tools.Tools), 42)
 
 	toolNames := make([]string, len(tools.Tools))
 	for i, t := range tools.Tools {
 		toolNames[i] = t.Name
 	}
 	a.Contains(toolNames, "connections")
+	a.Contains(toolNames, "gcal_create_event")
+	a.Contains(toolNames, "gcal_get_event")
+	a.Contains(toolNames, "gcal_list_calendars")
+	a.Contains(toolNames, "gcal_list_events")
+	a.Contains(toolNames, "gcal_quick_add")
+	a.Contains(toolNames, "gdrive_add_permission")
+	a.Contains(toolNames, "gdrive_create_file")
+	a.Contains(toolNames, "gdrive_get_file")
+	a.Contains(toolNames, "gdrive_list_files")
+	a.Contains(toolNames, "gdrive_list_permissions")
+	a.Contains(toolNames, "gdrive_read_file")
 	a.Contains(toolNames, "gmail_create_draft")
-	a.Contains(toolNames, "gmail_get_thread")
+	a.Contains(toolNames, "gmail_get_profile")
+	a.Contains(toolNames, "gmail_list_drafts")
 	a.Contains(toolNames, "gmail_list_labels")
-	a.Contains(toolNames, "gmail_list_messages")
 	a.Contains(toolNames, "gmail_read_message")
+	a.Contains(toolNames, "gmail_read_thread")
+	a.Contains(toolNames, "gmail_search_messages")
 	a.Contains(toolNames, "gmail_send_message")
-	a.Contains(toolNames, "slack_draft_message")
-	a.Contains(toolNames, "slack_get_channel_history")
-	a.Contains(toolNames, "slack_list_channels")
-	a.Contains(toolNames, "slack_post_message")
-	a.Contains(toolNames, "slack_search_messages")
-	a.Contains(toolNames, "slack_get_user_profile")
+	a.Contains(toolNames, "granola_get_document")
+	a.Contains(toolNames, "granola_list_documents")
+	a.Contains(toolNames, "granola_search_documents")
+	a.Contains(toolNames, "notion_append_content")
+	a.Contains(toolNames, "notion_create_page")
+	a.Contains(toolNames, "notion_get_database")
+	a.Contains(toolNames, "notion_get_page")
+	a.Contains(toolNames, "notion_get_page_content")
+	a.Contains(toolNames, "notion_query_database")
+	a.Contains(toolNames, "notion_search")
+	a.Contains(toolNames, "slack_create_canvas")
+	a.Contains(toolNames, "slack_read_canvas")
+	a.Contains(toolNames, "slack_read_channel")
+	a.Contains(toolNames, "slack_read_thread")
+	a.Contains(toolNames, "slack_read_user_profile")
+	a.Contains(toolNames, "slack_schedule_message")
+	a.Contains(toolNames, "slack_search_channels")
+	a.Contains(toolNames, "slack_search_public")
+	a.Contains(toolNames, "slack_search_public_and_private")
+	a.Contains(toolNames, "slack_search_users")
+	a.Contains(toolNames, "slack_send_message")
+	a.Contains(toolNames, "slack_send_message_draft")
 
 	res, err := session.CallTool(ctx, &gomcp.CallToolParams{Name: "connections"})
 	a.NoError(err)
@@ -94,7 +123,103 @@ func TestGmailToolsRequireAuth(t *testing.T) {
 	defer session.Close()
 
 	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "gmail_list_messages",
+		Name:      "gmail_search_messages",
+		Arguments: map[string]any{},
+	})
+	a.NoError(err)
+	a.True(res.IsError)
+	a.Contains(res.Content[0].(*gomcp.TextContent).Text, "not authenticated")
+}
+
+func TestGCalToolsRequireAuth(t *testing.T) {
+	a := assert.New(t)
+	ctx := context.Background()
+
+	server := NewServer("https://example.com", stubLookup(nil), nil)
+	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
+
+	_, err := server.Connect(ctx, serverTransport, nil)
+	a.NoError(err)
+
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	a.NoError(err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
+		Name:      "gcal_list_calendars",
+		Arguments: map[string]any{},
+	})
+	a.NoError(err)
+	a.True(res.IsError)
+	a.Contains(res.Content[0].(*gomcp.TextContent).Text, "not authenticated")
+}
+
+func TestGDriveToolsRequireAuth(t *testing.T) {
+	a := assert.New(t)
+	ctx := context.Background()
+
+	server := NewServer("https://example.com", stubLookup(nil), nil)
+	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
+
+	_, err := server.Connect(ctx, serverTransport, nil)
+	a.NoError(err)
+
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	a.NoError(err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
+		Name:      "gdrive_list_files",
+		Arguments: map[string]any{},
+	})
+	a.NoError(err)
+	a.True(res.IsError)
+	a.Contains(res.Content[0].(*gomcp.TextContent).Text, "not authenticated")
+}
+
+func TestGranolaToolsRequireAuth(t *testing.T) {
+	a := assert.New(t)
+	ctx := context.Background()
+
+	server := NewServer("https://example.com", stubLookup(nil), nil)
+	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
+
+	_, err := server.Connect(ctx, serverTransport, nil)
+	a.NoError(err)
+
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	a.NoError(err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
+		Name:      "granola_list_documents",
+		Arguments: map[string]any{},
+	})
+	a.NoError(err)
+	a.True(res.IsError)
+	a.Contains(res.Content[0].(*gomcp.TextContent).Text, "not authenticated")
+}
+
+func TestNotionToolsRequireAuth(t *testing.T) {
+	a := assert.New(t)
+	ctx := context.Background()
+
+	server := NewServer("https://example.com", stubLookup(nil), nil)
+	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
+
+	_, err := server.Connect(ctx, serverTransport, nil)
+	a.NoError(err)
+
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	a.NoError(err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
+		Name:      "notion_search",
 		Arguments: map[string]any{},
 	})
 	a.NoError(err)
@@ -118,8 +243,8 @@ func TestSlackToolsRequireAuth(t *testing.T) {
 	defer session.Close()
 
 	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "slack_list_channels",
-		Arguments: map[string]any{},
+		Name:      "slack_read_channel",
+		Arguments: map[string]any{"channel_id": "C0123"},
 	})
 	a.NoError(err)
 	a.True(res.IsError)

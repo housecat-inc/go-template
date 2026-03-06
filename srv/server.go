@@ -112,9 +112,31 @@ func (s *Server) Serve(addr string) error {
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			start := time.Now()
 			err := next(c)
 			if err != nil {
 				c.Error(err)
+			}
+			req := c.Request()
+			res := c.Response()
+			path := req.URL.Path
+			if path == "/healthz" || path == "/ready" || strings.HasPrefix(path, "/assets/") {
+				return nil
+			}
+			latency := time.Since(start)
+			attrs := []any{
+				"method", req.Method,
+				"path", path,
+				"status", res.Status,
+				"latency", latency.Round(time.Millisecond).String(),
+			}
+			if q := req.URL.RawQuery; q != "" {
+				attrs = append(attrs, "query", q)
+			}
+			if res.Status >= 400 {
+				slog.Warn("http request", attrs...)
+			} else {
+				slog.Info("http request", attrs...)
 			}
 			return nil
 		}

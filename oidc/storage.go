@@ -130,6 +130,10 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		return accessTokenID, "", expiration, nil
 	}
 
+	if currentRefreshToken != "" && s.isConfidentialClient(ctx, clientIDFromRequest(request)) {
+		return accessTokenID, currentRefreshToken, expiration, nil
+	}
+
 	if currentRefreshToken != "" {
 		if err := s.q().DeleteRefreshTokenByToken(ctx, currentRefreshToken); err != nil {
 			return "", "", time.Time{}, errors.Wrap(err, "delete old refresh token")
@@ -162,6 +166,14 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	}
 
 	return accessTokenID, refreshToken, expiration, nil
+}
+
+func (s *Storage) isConfidentialClient(ctx context.Context, clientID string) bool {
+	client, err := s.q().GetOidcClientByClientID(ctx, clientID)
+	if err != nil {
+		return false
+	}
+	return client.AuthMethod != "none"
 }
 
 func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken string) (op.RefreshTokenRequest, error) {
