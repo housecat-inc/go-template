@@ -265,6 +265,14 @@ func (s *Server) Serve(addr string) error {
 				}
 				return "", errors.Wrap(err, "get oauth token")
 			}
+			if tok.ExpiresAt != nil && tok.ExpiresAt.Before(time.Now().Add(30*time.Second)) && tok.RefreshToken != "" {
+				refreshed, err := s.refreshOAuthToken(ctx, tok)
+				if err != nil {
+					slog.Warn("oauth token refresh failed", "service", service, "level", level, "user", userID, "error", err)
+					return tok.AccessToken, nil
+				}
+				return refreshed, nil
+			}
 			return tok.AccessToken, nil
 		},
 		func(ctx context.Context, userID string) map[string]map[string]bool {

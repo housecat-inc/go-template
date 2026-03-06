@@ -337,3 +337,76 @@ func (s *Server) HandleConnectDisconnect(c echo.Context) error {
 	slog.Info("oauth disconnected", "service", service, "level", level, "user", userEmail)
 	return c.Redirect(http.StatusFound, "/connect/"+service)
 }
+
+func (s *Server) refreshOAuthToken(ctx context.Context, tok dbgen.OauthToken) (string, error) {
+	var endpoint oauth2.Endpoint
+	var clientID, clientSecret string
+
+	switch tok.Provider {
+	case "google":
+		endpoint = oauth2.Endpoint{
+			AuthURL:  "https://accounts.google.com/o/oauth2/v2/auth",
+			TokenURL: "https://oauth2.googleapis.com/token",
+		}
+		clientID = s.OAuth.ClientID
+		clientSecret = s.OAuth.ClientSecret
+	case "slack":
+		return "", errors.New("slack tokens do not support refresh")
+	case "notion":
+		return "", errors.New("notion tokens do not support refresh")
+	case "granola":
+		endpoint = oauth2.Endpoint{
+			TokenURL: "https://mcp-auth.granola.ai/oauth2/token",
+		}
+		clientID = ""
+		clientSecret = ""
+	default:
+		return "", errors.Newf("unknown provider for refresh: %s", tok.Provider)
+	}
+
+	cfg := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint:     endpoint,
+	}
+
+	oldToken := &oauth2.Token{
+		AccessToken:  tok.AccessToken,
+		RefreshToken: tok.RefreshToken,
+	}
+	if tok.ExpiresAt != nil {
+		oldToken.Expiry = *tok.ExpiresAt
+	}
+
+	newToken, err := cfg.TokenSource(ctx, oldToken).Token()
+	if err != nil {
+		return "", errors.Wrap(err, "refresh token")
+	}
+
+	var expiresAt *time.Time
+	if !newToken.Expiry.IsZero() {
+		expiresAt = &newToken.Expiry
+	}
+
+	refreshToken := newToken.RefreshToken
+	if refreshToken == "" {
+		refreshToken = tok.RefreshToken
+	}
+
+	q := dbgen.New(s.DB)
+	if err := q.UpsertOAuthToken(ctx, dbgen.UpsertOAuthTokenParams{
+		AccessToken:  newToken.AccessToken,
+		ExpiresAt:    expiresAt,
+		Level:        tok.Level,
+		Provider:     tok.Provider,
+		RefreshToken: refreshToken,
+		Scopes:       tok.Scopes,
+		Service:      tok.Service,
+		UserID:       tok.UserID,
+	}); err != nil {
+		slog.Warn("failed to persist refreshed token", "service", tok.Service, "error", err)
+	}
+
+	slog.Info("oauth token refreshed", "service", tok.Service, "level", tok.Level, "user", tok.UserID)
+	return newToken.AccessToken, nil
+}
