@@ -33,7 +33,7 @@ func (q *Queries) CountOidcClients(ctx context.Context) (int64, error) {
 }
 
 const getOidcClient = `-- name: GetOidcClient :one
-SELECT id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at FROM oidc_clients
+SELECT id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at, allowed_domain, allowed_emails FROM oidc_clients
 WHERE id = ? AND archived_at IS NULL
 `
 
@@ -57,12 +57,14 @@ func (q *Queries) GetOidcClient(ctx context.Context, id int64) (OidcClient, erro
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AllowedDomain,
+		&i.AllowedEmails,
 	)
 	return i, err
 }
 
 const getOidcClientByClientID = `-- name: GetOidcClientByClientID :one
-SELECT id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at FROM oidc_clients
+SELECT id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at, allowed_domain, allowed_emails FROM oidc_clients
 WHERE client_id = ? AND archived_at IS NULL
 `
 
@@ -86,27 +88,33 @@ func (q *Queries) GetOidcClientByClientID(ctx context.Context, clientID string) 
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AllowedDomain,
+		&i.AllowedEmails,
 	)
 	return i, err
 }
 
 const insertOidcClient = `-- name: InsertOidcClient :one
-INSERT INTO oidc_clients (client_id, client_secret, name, redirect_uris, scopes, created_by)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at
+INSERT INTO oidc_clients (allowed_domain, allowed_emails, client_id, client_secret, name, redirect_uris, scopes, created_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at, allowed_domain, allowed_emails
 `
 
 type InsertOidcClientParams struct {
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	Name         string `json:"name"`
-	RedirectUris string `json:"redirect_uris"`
-	Scopes       string `json:"scopes"`
-	CreatedBy    string `json:"created_by"`
+	AllowedDomain string `json:"allowed_domain"`
+	AllowedEmails string `json:"allowed_emails"`
+	ClientID      string `json:"client_id"`
+	ClientSecret  string `json:"client_secret"`
+	Name          string `json:"name"`
+	RedirectUris  string `json:"redirect_uris"`
+	Scopes        string `json:"scopes"`
+	CreatedBy     string `json:"created_by"`
 }
 
 func (q *Queries) InsertOidcClient(ctx context.Context, arg InsertOidcClientParams) (OidcClient, error) {
 	row := q.db.QueryRowContext(ctx, insertOidcClient,
+		arg.AllowedDomain,
+		arg.AllowedEmails,
 		arg.ClientID,
 		arg.ClientSecret,
 		arg.Name,
@@ -132,29 +140,35 @@ func (q *Queries) InsertOidcClient(ctx context.Context, arg InsertOidcClientPara
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AllowedDomain,
+		&i.AllowedEmails,
 	)
 	return i, err
 }
 
 const insertOidcClientFull = `-- name: InsertOidcClientFull :one
-INSERT INTO oidc_clients (client_id, client_secret, name, redirect_uris, scopes, auth_method, grant_types, created_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at
+INSERT INTO oidc_clients (allowed_domain, allowed_emails, client_id, client_secret, name, redirect_uris, scopes, auth_method, grant_types, created_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at, allowed_domain, allowed_emails
 `
 
 type InsertOidcClientFullParams struct {
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	Name         string `json:"name"`
-	RedirectUris string `json:"redirect_uris"`
-	Scopes       string `json:"scopes"`
-	AuthMethod   string `json:"auth_method"`
-	GrantTypes   string `json:"grant_types"`
-	CreatedBy    string `json:"created_by"`
+	AllowedDomain string `json:"allowed_domain"`
+	AllowedEmails string `json:"allowed_emails"`
+	ClientID      string `json:"client_id"`
+	ClientSecret  string `json:"client_secret"`
+	Name          string `json:"name"`
+	RedirectUris  string `json:"redirect_uris"`
+	Scopes        string `json:"scopes"`
+	AuthMethod    string `json:"auth_method"`
+	GrantTypes    string `json:"grant_types"`
+	CreatedBy     string `json:"created_by"`
 }
 
 func (q *Queries) InsertOidcClientFull(ctx context.Context, arg InsertOidcClientFullParams) (OidcClient, error) {
 	row := q.db.QueryRowContext(ctx, insertOidcClientFull,
+		arg.AllowedDomain,
+		arg.AllowedEmails,
 		arg.ClientID,
 		arg.ClientSecret,
 		arg.Name,
@@ -182,12 +196,14 @@ func (q *Queries) InsertOidcClientFull(ctx context.Context, arg InsertOidcClient
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AllowedDomain,
+		&i.AllowedEmails,
 	)
 	return i, err
 }
 
 const listOidcClients = `-- name: ListOidcClients :many
-SELECT id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at FROM oidc_clients
+SELECT id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at, allowed_domain, allowed_emails FROM oidc_clients
 WHERE archived_at IS NULL
 ORDER BY created_at DESC
 `
@@ -218,6 +234,8 @@ func (q *Queries) ListOidcClients(ctx context.Context) ([]OidcClient, error) {
 			&i.ArchivedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AllowedDomain,
+			&i.AllowedEmails,
 		); err != nil {
 			return nil, err
 		}
@@ -234,19 +252,23 @@ func (q *Queries) ListOidcClients(ctx context.Context) ([]OidcClient, error) {
 
 const updateOidcClient = `-- name: UpdateOidcClient :exec
 UPDATE oidc_clients
-SET name = ?, redirect_uris = ?, scopes = ?, updated_at = CURRENT_TIMESTAMP
+SET allowed_domain = ?, allowed_emails = ?, name = ?, redirect_uris = ?, scopes = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ? AND archived_at IS NULL
 `
 
 type UpdateOidcClientParams struct {
-	Name         string `json:"name"`
-	RedirectUris string `json:"redirect_uris"`
-	Scopes       string `json:"scopes"`
-	ID           int64  `json:"id"`
+	AllowedDomain string `json:"allowed_domain"`
+	AllowedEmails string `json:"allowed_emails"`
+	Name          string `json:"name"`
+	RedirectUris  string `json:"redirect_uris"`
+	Scopes        string `json:"scopes"`
+	ID            int64  `json:"id"`
 }
 
 func (q *Queries) UpdateOidcClient(ctx context.Context, arg UpdateOidcClientParams) error {
 	_, err := q.db.ExecContext(ctx, updateOidcClient,
+		arg.AllowedDomain,
+		arg.AllowedEmails,
 		arg.Name,
 		arg.RedirectUris,
 		arg.Scopes,

@@ -37,6 +37,22 @@ func LoginHandler(storage *Storage, provider op.OpenIDProvider, resolveSession S
 			}
 		}
 
+		authReq, err := storage.AuthRequestByID(r.Context(), authRequestID)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid auth request")
+		}
+
+		if !isLoopbackRequest(r) {
+			client, err := storage.q().GetOidcClientByClientID(r.Context(), authReq.GetClientID())
+			if err != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, "unknown client")
+			}
+
+			if !CheckAccess(email, client.AllowedDomain, client.AllowedEmails) {
+				return echo.NewHTTPError(http.StatusForbidden, "you don't have access to this application")
+			}
+		}
+
 		if err := storage.CompleteAuthRequest(r.Context(), authRequestID, userID, email); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, "invalid auth request")
 		}

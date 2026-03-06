@@ -57,6 +57,8 @@ func (s *Server) HandleClientsCreate(c echo.Context) error {
 	userID := c.Get("userID").(string)
 	userEmail := c.Get("userEmail").(string)
 
+	allowedDomain := strings.TrimSpace(c.FormValue("allowed_domain"))
+	allowedEmails := normalizeEmailList(c.FormValue("allowed_emails"))
 	name := strings.TrimSpace(c.FormValue("name"))
 	redirectURIs := joinLines(c.FormValue("redirect_uris"))
 	scopes, err := validateScopes(c.Request().Form["scopes"])
@@ -79,12 +81,14 @@ func (s *Server) HandleClientsCreate(c echo.Context) error {
 
 	q := dbgen.New(s.DB)
 	client, err := q.InsertOidcClient(ctx, dbgen.InsertOidcClientParams{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		Name:         name,
-		RedirectUris: redirectURIs,
-		Scopes:       scopes,
-		CreatedBy:    userID,
+		AllowedDomain: allowedDomain,
+		AllowedEmails: allowedEmails,
+		ClientID:      clientID,
+		ClientSecret:  clientSecret,
+		Name:          name,
+		RedirectUris:  redirectURIs,
+		Scopes:        scopes,
+		CreatedBy:     userID,
 	})
 	if err != nil {
 		return errors.Wrap(err, "insert client")
@@ -189,6 +193,8 @@ func (s *Server) HandleClientsUpdate(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid id")
 	}
 
+	allowedDomain := strings.TrimSpace(c.FormValue("allowed_domain"))
+	allowedEmails := normalizeEmailList(c.FormValue("allowed_emails"))
 	name := strings.TrimSpace(c.FormValue("name"))
 	redirectURIs := joinLines(c.FormValue("redirect_uris"))
 	scopes, scopeErr := validateScopes(c.Request().Form["scopes"])
@@ -202,10 +208,12 @@ func (s *Server) HandleClientsUpdate(c echo.Context) error {
 
 	q := dbgen.New(s.DB)
 	if err := q.UpdateOidcClient(ctx, dbgen.UpdateOidcClientParams{
-		ID:           id,
-		Name:         name,
-		RedirectUris: redirectURIs,
-		Scopes:       scopes,
+		AllowedDomain: allowedDomain,
+		AllowedEmails: allowedEmails,
+		ID:            id,
+		Name:          name,
+		RedirectUris:  redirectURIs,
+		Scopes:        scopes,
 	}); err != nil {
 		return errors.Wrap(err, "update client")
 	}
@@ -266,6 +274,19 @@ func validateScopes(submitted []string) (string, error) {
 		valid = append(valid, s)
 	}
 	return strings.Join(valid, ","), nil
+}
+
+func normalizeEmailList(s string) string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		for _, email := range strings.Split(line, ",") {
+			email = strings.ToLower(strings.TrimSpace(email))
+			if email != "" {
+				out = append(out, email)
+			}
+		}
+	}
+	return strings.Join(out, ",")
 }
 
 func joinLines(s string) string {

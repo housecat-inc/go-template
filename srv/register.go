@@ -15,6 +15,8 @@ import (
 
 // ClientRegistrationRequest is the RFC 7591 registration request body.
 type ClientRegistrationRequest struct {
+	AllowedDomain           *string  `json:"allowed_domain"`
+	AllowedEmails           []string `json:"allowed_emails"`
 	ClientName              string   `json:"client_name"`
 	RedirectURIs            []string `json:"redirect_uris"`
 	GrantTypes              []string `json:"grant_types"`
@@ -25,6 +27,8 @@ type ClientRegistrationRequest struct {
 
 // ClientRegistrationResponse is the RFC 7591 registration response body.
 type ClientRegistrationResponse struct {
+	AllowedDomain           string   `json:"allowed_domain"`
+	AllowedEmails           []string `json:"allowed_emails"`
 	ClientID                string   `json:"client_id"`
 	ClientSecret            string   `json:"client_secret"`
 	ClientName              string   `json:"client_name"`
@@ -157,15 +161,23 @@ func (s *Server) HandleRegister(c echo.Context) error {
 
 	internalScopes := strings.ReplaceAll(req.Scope, " ", ",")
 
+	allowedDomain := "housecat.com"
+	if req.AllowedDomain != nil {
+		allowedDomain = strings.TrimSpace(*req.AllowedDomain)
+	}
+	allowedEmails := strings.Join(req.AllowedEmails, ",")
+
 	client, err := q.InsertOidcClientFull(ctx, dbgen.InsertOidcClientFullParams{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		Name:         req.ClientName,
-		RedirectUris: strings.Join(req.RedirectURIs, ","),
-		Scopes:       internalScopes,
-		AuthMethod:   req.TokenEndpointAuthMethod,
-		GrantTypes:   strings.Join(req.GrantTypes, ","),
-		CreatedBy:    token.Subject,
+		AllowedDomain: allowedDomain,
+		AllowedEmails: allowedEmails,
+		ClientID:      clientID,
+		ClientSecret:  clientSecret,
+		Name:          req.ClientName,
+		RedirectUris:  strings.Join(req.RedirectURIs, ","),
+		Scopes:        internalScopes,
+		AuthMethod:    req.TokenEndpointAuthMethod,
+		GrantTypes:    strings.Join(req.GrantTypes, ","),
+		CreatedBy:     token.Subject,
 	})
 	if err != nil {
 		return errors.Wrap(err, "insert client")
@@ -183,7 +195,14 @@ func (s *Server) HandleRegister(c echo.Context) error {
 		Metadata:   &req.ClientName,
 	})
 
+	var respEmails []string
+	if allowedEmails != "" {
+		respEmails = strings.Split(allowedEmails, ",")
+	}
+
 	return c.JSON(http.StatusCreated, ClientRegistrationResponse{
+		AllowedDomain:           allowedDomain,
+		AllowedEmails:           respEmails,
 		ClientID:                client.ClientID,
 		ClientSecret:            client.ClientSecret,
 		ClientName:              client.Name,

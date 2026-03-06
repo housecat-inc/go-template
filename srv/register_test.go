@@ -194,6 +194,78 @@ func TestHandleRegister(t *testing.T) {
 	})
 }
 
+func registerClient(t *testing.T, server *Server, e *echo.Echo, body string) (int, ClientRegistrationResponse) {
+	t.Helper()
+	r := require.New(t)
+
+	tokenReq := httptest.NewRequest(http.MethodPost, "/admin/clients/registration-token", nil)
+	tokenW := httptest.NewRecorder()
+	tokenC := e.NewContext(tokenReq, tokenW)
+	tokenC.Set("userID", "admin")
+	r.NoError(server.HandleRegistrationToken(tokenC))
+
+	var tokenResp map[string]any
+	r.NoError(json.Unmarshal(tokenW.Body.Bytes(), &tokenResp))
+	token := tokenResp["token"].(string)
+
+	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	c := e.NewContext(req, w)
+	r.NoError(server.HandleRegister(c))
+
+	var resp ClientRegistrationResponse
+	if w.Code == http.StatusCreated {
+		r.NoError(json.Unmarshal(w.Body.Bytes(), &resp))
+	}
+	return w.Code, resp
+}
+
+func TestRegisterAccessControl(t *testing.T) {
+	server := testServer(t)
+	e := echo.New()
+
+	t.Run("defaults to housecat.com domain", func(t *testing.T) {
+		a := assert.New(t)
+		code, resp := registerClient(t, server, e, `{"client_name": "default-domain", "redirect_uris": ["https://example.com/cb"]}`)
+		a.Equal(http.StatusCreated, code)
+		a.Equal("housecat.com", resp.AllowedDomain)
+		a.Nil(resp.AllowedEmails)
+	})
+
+	t.Run("explicit domain", func(t *testing.T) {
+		a := assert.New(t)
+		code, resp := registerClient(t, server, e, `{"client_name": "custom-domain", "redirect_uris": ["https://example.com/cb"], "allowed_domain": "acme.com"}`)
+		a.Equal(http.StatusCreated, code)
+		a.Equal("acme.com", resp.AllowedDomain)
+	})
+
+	t.Run("explicit empty domain for open access", func(t *testing.T) {
+		a := assert.New(t)
+		code, resp := registerClient(t, server, e, `{"client_name": "open", "redirect_uris": ["https://example.com/cb"], "allowed_domain": ""}`)
+		a.Equal(http.StatusCreated, code)
+		a.Equal("", resp.AllowedDomain)
+		a.Nil(resp.AllowedEmails)
+	})
+
+	t.Run("domain with emails", func(t *testing.T) {
+		a := assert.New(t)
+		code, resp := registerClient(t, server, e, `{"client_name": "mixed", "redirect_uris": ["https://example.com/cb"], "allowed_domain": "acme.com", "allowed_emails": ["guest@gmail.com", "vip@corp.co"]}`)
+		a.Equal(http.StatusCreated, code)
+		a.Equal("acme.com", resp.AllowedDomain)
+		a.Equal([]string{"guest@gmail.com", "vip@corp.co"}, resp.AllowedEmails)
+	})
+
+	t.Run("emails only", func(t *testing.T) {
+		a := assert.New(t)
+		code, resp := registerClient(t, server, e, `{"client_name": "emails-only", "redirect_uris": ["https://example.com/cb"], "allowed_domain": "", "allowed_emails": ["alice@gmail.com"]}`)
+		a.Equal(http.StatusCreated, code)
+		a.Equal("", resp.AllowedDomain)
+		a.Equal([]string{"alice@gmail.com"}, resp.AllowedEmails)
+	})
+}
+
 func TestHasScope(t *testing.T) {
 	a := assert.New(t)
 	a.True(hasScope("client:register", "client:register"))

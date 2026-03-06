@@ -133,6 +133,35 @@ templ clientsFormFields(data ClientsFormData) {
 		}
 	</div>
 	<div class="space-y-4">
+		<h3 class="text-lg font-semibold">Access Control</h3>
+		<p class="text-sm text-muted-foreground">Restrict who can authenticate. Domain and email list are combined — a user matching either is allowed.</p>
+		@form.Item() {
+			@label.Label(label.Props{For: "client-allowed-domain"}) {
+				Allowed Domain
+			}
+			@input.Input(input.Props{
+				ID:          "client-allowed-domain",
+				Name:        "allowed_domain",
+				Placeholder: "housecat.com",
+				Value:       clientFormAllowedDomain(data.Client),
+			})
+			<p class="text-sm text-muted-foreground mt-1">Users with this email domain are allowed. Leave empty for no domain restriction.</p>
+		}
+		@form.Item() {
+			@label.Label(label.Props{For: "client-allowed-emails"}) {
+				Allowed Emails
+			}
+			@textarea.Textarea(textarea.Props{
+				ID:          "client-allowed-emails",
+				Name:        "allowed_emails",
+				Placeholder: "guest@example.com\nanother@example.com",
+				Value:       clientFormAllowedEmails(data.Client),
+				Rows:        3,
+			})
+			<p class="text-sm text-muted-foreground mt-1">Additional individual emails to allow. One per line.</p>
+		}
+	</div>
+	<div class="space-y-4">
 		<h3 class="text-lg font-semibold">Scopes</h3>
 		<div class="space-y-3">
 			for _, scope := range data.AvailableScopes {
@@ -150,6 +179,20 @@ templ clientsFormFields(data ClientsFormData) {
 			}
 		</div>
 	</div>
+}
+
+func clientFormAllowedDomain(client *dbgen.OidcClient) string {
+	if client != nil {
+		return client.AllowedDomain
+	}
+	return "housecat.com"
+}
+
+func clientFormAllowedEmails(client *dbgen.OidcClient) string {
+	if client != nil {
+		return strings.ReplaceAll(client.AllowedEmails, ",", "\n")
+	}
+	return ""
 }
 
 func clientFormName(client *dbgen.OidcClient) string {

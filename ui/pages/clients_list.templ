@@ -88,6 +88,32 @@ templ clientsStatsCard(title, value, subtitle string, iconComponent templ.Compon
 	}
 }
 
+func accessSummaryText(client dbgen.OidcClient) string {
+	hasDomain := client.AllowedDomain != ""
+	emails := splitCommaTempl(client.AllowedEmails)
+	count := len(emails)
+	if !hasDomain && count == 0 {
+		return "open access"
+	}
+	if hasDomain && count == 0 {
+		return "@" + client.AllowedDomain
+	}
+	if !hasDomain {
+		if count <= 2 {
+			return strings.Join(emails, ", ")
+		}
+		return fmt.Sprintf("%d emails", count)
+	}
+	if count <= 2 {
+		return "@" + client.AllowedDomain + " + " + strings.Join(emails, ", ")
+	}
+	return fmt.Sprintf("@%s + %d more", client.AllowedDomain, count)
+}
+
+templ clientAccessSummary(client dbgen.OidcClient) {
+	<span class="text-xs">{ accessSummaryText(client) }</span>
+}
+
 templ clientsListItem(client dbgen.OidcClient) {
 	{{ scopes := splitCommaTempl(client.Scopes) }}
 	<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg gap-3">
@@ -99,11 +125,13 @@ templ clientsListItem(client dbgen.OidcClient) {
 				<div class="flex items-center gap-2">
 					<a href={ templ.SafeURL(fmt.Sprintf("/admin/clients/%d", client.ID)) } class="font-medium truncate hover:underline">{ client.Name }</a>
 				</div>
-				<p class="text-sm text-muted-foreground truncate">
+				<div class="flex items-center gap-2 text-sm text-muted-foreground">
 					<span
 						title={ client.CreatedAt.Format(time.RFC3339) }
 					>{ relativeTime(client.CreatedAt) }</span>
-				</p>
+					<span>&middot;</span>
+					@clientAccessSummary(client)
+				</div>
 			</div>
 		</div>
 		<div class="flex items-center gap-2 flex-shrink-0">

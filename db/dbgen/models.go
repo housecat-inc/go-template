@@ -79,6 +79,8 @@ type OidcClient struct {
 	ArchivedAt             *time.Time `json:"archived_at"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+	AllowedDomain          string     `json:"allowed_domain"`
+	AllowedEmails          string     `json:"allowed_emails"`
 }
 
 type OidcCode struct {
