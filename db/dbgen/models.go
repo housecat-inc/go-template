@@ -33,6 +33,7 @@ type OauthToken struct {
 	UserID       string     `json:"user_id"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
+	ClientID     string     `json:"client_id"`
 }
 
 type OidcAccessToken struct {

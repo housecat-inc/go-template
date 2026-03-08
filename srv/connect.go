@@ -356,9 +356,10 @@ func (s *Server) refreshOAuthToken(ctx context.Context, tok dbgen.OauthToken) (s
 		return "", errors.New("notion tokens do not support refresh")
 	case "granola":
 		endpoint = oauth2.Endpoint{
-			TokenURL: "https://mcp-auth.granola.ai/oauth2/token",
+			TokenURL:  "https://mcp-auth.granola.ai/oauth2/token",
+			AuthStyle: oauth2.AuthStyleInParams,
 		}
-		clientID = ""
+		clientID = tok.ClientID
 		clientSecret = ""
 	default:
 		return "", errors.Newf("unknown provider for refresh: %s", tok.Provider)
@@ -396,6 +397,7 @@ func (s *Server) refreshOAuthToken(ctx context.Context, tok dbgen.OauthToken) (s
 	q := dbgen.New(s.DB)
 	if err := q.UpsertOAuthToken(ctx, dbgen.UpsertOAuthTokenParams{
 		AccessToken:  newToken.AccessToken,
+		ClientID:     tok.ClientID,
 		ExpiresAt:    expiresAt,
 		Level:        tok.Level,
 		Provider:     tok.Provider,

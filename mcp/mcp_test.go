@@ -36,7 +36,7 @@ func TestConnections(t *testing.T) {
 
 	tools, err := session.ListTools(ctx, nil)
 	a.NoError(err)
-	a.GreaterOrEqual(len(tools.Tools), 42)
+	a.GreaterOrEqual(len(tools.Tools), 43)
 
 	toolNames := make([]string, len(tools.Tools))
 	for i, t := range tools.Tools {
@@ -62,9 +62,10 @@ func TestConnections(t *testing.T) {
 	a.Contains(toolNames, "gmail_read_thread")
 	a.Contains(toolNames, "gmail_search_messages")
 	a.Contains(toolNames, "gmail_send_message")
-	a.Contains(toolNames, "granola_get_document")
-	a.Contains(toolNames, "granola_list_documents")
-	a.Contains(toolNames, "granola_search_documents")
+	a.Contains(toolNames, "granola_get_meeting_transcript")
+	a.Contains(toolNames, "granola_get_meetings")
+	a.Contains(toolNames, "granola_list_meetings")
+	a.Contains(toolNames, "granola_query_meetings")
 	a.Contains(toolNames, "notion_append_content")
 	a.Contains(toolNames, "notion_create_page")
 	a.Contains(toolNames, "notion_get_database")
@@ -195,7 +196,7 @@ func TestGranolaToolsRequireAuth(t *testing.T) {
 	defer session.Close()
 
 	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "granola_list_documents",
+		Name:      "granola_list_meetings",
 		Arguments: map[string]any{},
 	})
 	a.NoError(err)

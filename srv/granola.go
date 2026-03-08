@@ -221,6 +221,7 @@ func (s *Server) HandleGranolaCallback(c echo.Context) error {
 	q := dbgen.New(s.DB)
 	if err := q.UpsertOAuthToken(ctx, dbgen.UpsertOAuthTokenParams{
 		AccessToken:  tokenResp.AccessToken,
+		ClientID:     saved.ClientID,
 		ExpiresAt:    &expiry,
 		Level:        "read",
 		Provider:     "granola",

@@ -744,50 +744,11 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup)
 	// Granola tools
 
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "granola_list_documents",
-		Description: "List recent meeting notes from Granola. Requires Granola read connection.",
+		Name:        "granola_query_meetings",
+		Description: "Query Granola about the user's meetings using natural language. Returns a response with inline citation links to source meeting notes. Prefer this for open-ended questions about meeting content, decisions, action items, and follow-ups.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Limit int `json:"limit,omitempty" jsonschema:"Max documents to return (default 10)"`
-	}) (*gomcp.CallToolResult, any, error) {
-		client, err := granolaClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.ListDocuments(ctx, input.Limit)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "granola_get_document",
-		Description: "Get full meeting notes and transcript from Granola by document ID. Requires Granola read connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		DocumentID string `json:"document_id" jsonschema:"Granola document ID"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.DocumentID == "" {
-			return errResult("document_id is required")
-		}
-		client, err := granolaClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.GetDocument(ctx, input.DocumentID)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "granola_search_documents",
-		Description: "Search Granola meeting notes by keyword. Requires Granola read connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Limit int    `json:"limit,omitempty" jsonschema:"Max results to return (default 10)"`
-		Query string `json:"query" jsonschema:"Search keyword"`
+		DocumentIDs []string `json:"document_ids,omitempty" jsonschema:"Optional list of specific meeting IDs to limit context to"`
+		Query       string   `json:"query" jsonschema:"Natural language query about meetings"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.Query == "" {
 			return errResult("query is required")
@@ -796,12 +757,84 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup)
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.SearchDocuments(ctx, input.Query, input.Limit)
+		args := map[string]any{"query": input.Query}
+		if len(input.DocumentIDs) > 0 {
+			args["document_ids"] = input.DocumentIDs
+		}
+		out, err := client.CallTool(ctx, "query_granola_meetings", args)
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}}}, nil, nil
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "granola_list_meetings",
+		Description: "List Granola meeting notes within a time range. Returns meeting titles and metadata. Use granola_get_meetings to retrieve detailed content after identifying relevant meetings.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		CustomEnd   string `json:"custom_end,omitempty" jsonschema:"ISO date for custom range end (required if time_range is custom)"`
+		CustomStart string `json:"custom_start,omitempty" jsonschema:"ISO date for custom range start (required if time_range is custom)"`
+		TimeRange   string `json:"time_range,omitempty" jsonschema:"Time range: this_week, last_week, last_30_days, or custom (default last_30_days)"`
+	}) (*gomcp.CallToolResult, any, error) {
+		client, err := granolaClientFromRequest(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		args := map[string]any{}
+		if input.TimeRange != "" {
+			args["time_range"] = input.TimeRange
+		}
+		if input.CustomStart != "" {
+			args["custom_start"] = input.CustomStart
+		}
+		if input.CustomEnd != "" {
+			args["custom_end"] = input.CustomEnd
+		}
+		out, err := client.CallTool(ctx, "list_meetings", args)
+		if err != nil {
+			return errResult(err.Error())
+		}
+		return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}}}, nil, nil
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "granola_get_meetings",
+		Description: "Get detailed meeting information for one or more Granola meetings by ID. Returns notes, AI-generated summary, attendees, and metadata.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		MeetingIDs []string `json:"meeting_ids" jsonschema:"Array of meeting UUIDs (max 10)"`
+	}) (*gomcp.CallToolResult, any, error) {
+		if len(input.MeetingIDs) == 0 {
+			return errResult("meeting_ids is required")
+		}
+		client, err := granolaClientFromRequest(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := client.CallTool(ctx, "get_meetings", map[string]any{"meeting_ids": input.MeetingIDs})
+		if err != nil {
+			return errResult(err.Error())
+		}
+		return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}}}, nil, nil
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "granola_get_meeting_transcript",
+		Description: "Get the full verbatim transcript for a specific Granola meeting by ID. Use when the user needs exact quotes or specific wording.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		MeetingID string `json:"meeting_id" jsonschema:"Meeting UUID"`
+	}) (*gomcp.CallToolResult, any, error) {
+		if input.MeetingID == "" {
+			return errResult("meeting_id is required")
+		}
+		client, err := granolaClientFromRequest(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := client.CallTool(ctx, "get_meeting_transcript", map[string]any{"meeting_id": input.MeetingID})
+		if err != nil {
+			return errResult(err.Error())
+		}
+		return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}}}, nil, nil
 	})
 
 	// Notion tools

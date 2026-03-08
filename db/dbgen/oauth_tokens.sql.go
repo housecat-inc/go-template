@@ -42,7 +42,7 @@ func (q *Queries) DeleteOAuthTokensByUserAndService(ctx context.Context, arg Del
 }
 
 const getOAuthToken = `-- name: GetOAuthToken :one
-SELECT id, access_token, expires_at, level, provider, refresh_token, scopes, service, user_id, created_at, updated_at FROM oauth_tokens
+SELECT id, access_token, expires_at, level, provider, refresh_token, scopes, service, user_id, created_at, updated_at, client_id FROM oauth_tokens
 WHERE user_id = ? AND service = ? AND level = ?
 `
 
@@ -67,12 +67,13 @@ func (q *Queries) GetOAuthToken(ctx context.Context, arg GetOAuthTokenParams) (O
 		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ClientID,
 	)
 	return i, err
 }
 
 const listOAuthTokensByUser = `-- name: ListOAuthTokensByUser :many
-SELECT id, access_token, expires_at, level, provider, refresh_token, scopes, service, user_id, created_at, updated_at FROM oauth_tokens
+SELECT id, access_token, expires_at, level, provider, refresh_token, scopes, service, user_id, created_at, updated_at, client_id FROM oauth_tokens
 WHERE user_id = ?
 ORDER BY service, level
 `
@@ -98,6 +99,7 @@ func (q *Queries) ListOAuthTokensByUser(ctx context.Context, userID string) ([]O
 			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ClientID,
 		); err != nil {
 			return nil, err
 		}
@@ -113,10 +115,11 @@ func (q *Queries) ListOAuthTokensByUser(ctx context.Context, userID string) ([]O
 }
 
 const upsertOAuthToken = `-- name: UpsertOAuthToken :exec
-INSERT INTO oauth_tokens (access_token, expires_at, level, provider, refresh_token, scopes, service, user_id)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO oauth_tokens (access_token, client_id, expires_at, level, provider, refresh_token, scopes, service, user_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(user_id, service, level) DO UPDATE SET
     access_token = excluded.access_token,
+    client_id = excluded.client_id,
     expires_at = excluded.expires_at,
     refresh_token = excluded.refresh_token,
     scopes = excluded.scopes,
@@ -125,6 +128,7 @@ ON CONFLICT(user_id, service, level) DO UPDATE SET
 
 type UpsertOAuthTokenParams struct {
 	AccessToken  string     `json:"access_token"`
+	ClientID     string     `json:"client_id"`
 	ExpiresAt    *time.Time `json:"expires_at"`
 	Level        string     `json:"level"`
 	Provider     string     `json:"provider"`
@@ -137,6 +141,7 @@ type UpsertOAuthTokenParams struct {
 func (q *Queries) UpsertOAuthToken(ctx context.Context, arg UpsertOAuthTokenParams) error {
 	_, err := q.db.ExecContext(ctx, upsertOAuthToken,
 		arg.AccessToken,
+		arg.ClientID,
 		arg.ExpiresAt,
 		arg.Level,
 		arg.Provider,

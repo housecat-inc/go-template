@@ -1,135 +1,112 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"strings"
+	"sync/atomic"
 
 	"github.com/cockroachdb/errors"
 )
 
-const granolaAPIBase = "https://api.granola.ai/v2"
+const granolaMCPEndpoint = "https://mcp.granola.ai/mcp"
 
 type GranolaClient struct {
 	Token string
 }
 
-type GranolaDocument struct {
-	CreatedAt string `json:"created_at"`
-	ID        string `json:"id"`
-	Notes     string `json:"notes"`
-	Title     string `json:"title"`
-	UpdatedAt string `json:"updated_at"`
-}
+var mcpRequestID atomic.Int64
 
-type GranolaDocumentDetail struct {
-	CreatedAt  string `json:"created_at"`
-	ID         string `json:"id"`
-	Notes      string `json:"notes"`
-	Title      string `json:"title"`
-	Transcript string `json:"transcript"`
-	UpdatedAt  string `json:"updated_at"`
-}
-
-func (c *GranolaClient) do(ctx context.Context, method, path string, query url.Values) (json.RawMessage, error) {
-	apiURL := granolaAPIBase + path
-	if len(query) > 0 {
-		apiURL += "?" + query.Encode()
+func (c *GranolaClient) CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error) {
+	reqID := mcpRequestID.Add(1)
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      reqID,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      toolName,
+			"arguments": arguments,
+		},
 	}
-	req, err := http.NewRequestWithContext(ctx, method, apiURL, nil)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal request")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, granolaMCPEndpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create request")
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "granola api request")
+		return nil, errors.Wrap(err, "granola mcp request")
 	}
 	defer resp.Body.Close()
+
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response")
 	}
+
 	if resp.StatusCode >= 400 {
-		return nil, errors.Newf("granola api error (%d): %s", resp.StatusCode, string(data))
+		return nil, errors.Newf("granola mcp error (%d): %s", resp.StatusCode, string(data))
 	}
-	return json.RawMessage(data), nil
-}
 
-func (c *GranolaClient) get(ctx context.Context, path string, query url.Values) (json.RawMessage, error) {
-	return c.do(ctx, http.MethodGet, path, query)
-}
+	parsed := string(data)
+	if strings.HasPrefix(parsed, "event:") {
+		for _, line := range strings.Split(parsed, "\n") {
+			if strings.HasPrefix(line, "data: ") {
+				parsed = strings.TrimPrefix(line, "data: ")
+				break
+			}
+		}
+	}
 
-type ListDocumentsOut struct {
-	Documents []GranolaDocument `json:"documents"`
-}
+	var rpcResp struct {
+		Result struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError"`
+		} `json:"result"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(parsed), &rpcResp); err != nil {
+		return nil, errors.Wrap(err, "decode mcp response")
+	}
 
-const maxListDocuments = 25
+	if rpcResp.Error != nil {
+		return nil, errors.Newf("granola mcp error: %s", rpcResp.Error.Message)
+	}
 
-func (c *GranolaClient) ListDocuments(ctx context.Context, limit int) (ListDocumentsOut, error) {
-	var out ListDocumentsOut
-	if limit <= 0 {
-		limit = 10
+	if rpcResp.Result.IsError {
+		var texts []string
+		for _, c := range rpcResp.Result.Content {
+			if c.Type == "text" {
+				texts = append(texts, c.Text)
+			}
+		}
+		return nil, errors.Newf("granola tool error: %s", strings.Join(texts, "; "))
 	}
-	if limit > maxListDocuments {
-		limit = maxListDocuments
-	}
-	params := url.Values{
-		"limit": {fmt.Sprintf("%d", limit)},
-	}
-	data, err := c.get(ctx, "/documents", params)
-	if err != nil {
-		return out, errors.Wrap(err, "list documents")
-	}
-	var resp []GranolaDocument
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return out, errors.Wrap(err, "decode documents")
-	}
-	out.Documents = resp
-	return out, nil
-}
 
-type GetDocumentOut = GranolaDocumentDetail
+	var texts []string
+	for _, c := range rpcResp.Result.Content {
+		if c.Type == "text" {
+			texts = append(texts, c.Text)
+		}
+	}
 
-func (c *GranolaClient) GetDocument(ctx context.Context, id string) (GetDocumentOut, error) {
-	var out GetDocumentOut
-	data, err := c.get(ctx, "/documents/"+url.PathEscape(id), nil)
-	if err != nil {
-		return out, errors.Wrap(err, "get document")
-	}
-	if err := json.Unmarshal(data, &out); err != nil {
-		return out, errors.Wrap(err, "decode document")
-	}
-	return out, nil
-}
-
-type SearchDocumentsOut struct {
-	Documents []GranolaDocument `json:"documents"`
-}
-
-func (c *GranolaClient) SearchDocuments(ctx context.Context, query string, limit int) (SearchDocumentsOut, error) {
-	var out SearchDocumentsOut
-	if limit <= 0 {
-		limit = 10
-	}
-	if limit > maxListDocuments {
-		limit = maxListDocuments
-	}
-	params := url.Values{
-		"limit": {fmt.Sprintf("%d", limit)},
-		"q":     {query},
-	}
-	data, err := c.get(ctx, "/documents", params)
-	if err != nil {
-		return out, errors.Wrap(err, "search documents")
-	}
-	var resp []GranolaDocument
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return out, errors.Wrap(err, "decode search results")
-	}
-	out.Documents = resp
-	return out, nil
+	result := strings.Join(texts, "\n")
+	return json.RawMessage(result), nil
 }
