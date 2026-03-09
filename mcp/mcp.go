@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/cockroachdb/errors"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -904,7 +905,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup)
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "notion_get_database",
-		Description: "Get a Notion database's schema and metadata. Requires Notion read connection.",
+		Description: "Get a Notion database's full schema including all property definitions (types, options, relation targets). Use this to discover property names and types before creating or updating pages. Requires Notion read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		DatabaseID string `json:"database_id" jsonschema:"Notion database ID"`
 	}) (*gomcp.CallToolResult, any, error) {
@@ -948,12 +949,13 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup)
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "notion_create_page",
-		Description: "Create a new Notion page under a parent page or database. Requires Notion draft or write connection.",
+		Description: "Create a new Notion page under a parent page or database. Use 'properties' for database-specific fields (dates, relations, multi-select, etc.) in Notion API format. Use notion_get_database first to discover the schema. Requires Notion draft or write connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Content          string `json:"content,omitempty" jsonschema:"Initial page content (optional paragraph text)"`
-		ParentDatabaseID string `json:"parent_database_id,omitempty" jsonschema:"Parent database ID (provide this or parent_page_id)"`
-		ParentPageID     string `json:"parent_page_id,omitempty" jsonschema:"Parent page ID (provide this or parent_database_id)"`
-		Title            string `json:"title" jsonschema:"Page title"`
+		Content          string                         `json:"content,omitempty" jsonschema:"Initial page content (optional paragraph text)"`
+		ParentDatabaseID string                         `json:"parent_database_id,omitempty" jsonschema:"Parent database ID (provide this or parent_page_id)"`
+		ParentPageID     string                         `json:"parent_page_id,omitempty" jsonschema:"Parent page ID (provide this or parent_database_id)"`
+		Properties       map[string]any `json:"properties,omitempty" jsonschema:"Database properties in Notion API format. Each key is the property name, value is the Notion property value object (e.g. date, relation, multi_select, rich_text, etc.). Title property is set automatically from the title field."`
+		Title            string                         `json:"title" jsonschema:"Page title"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.Title == "" {
 			return errResult("title is required")
@@ -965,7 +967,40 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup)
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.CreatePage(ctx, input.ParentPageID, input.ParentDatabaseID, input.Title, input.Content)
+		props, err := json.Marshal(input.Properties)
+		if err != nil {
+			return errResult(fmt.Sprintf("marshal properties: %v", err))
+		}
+		out, err := client.CreatePage(ctx, input.ParentPageID, input.ParentDatabaseID, input.Title, input.Content, json.RawMessage(props))
+		if err != nil {
+			return errResult(err.Error())
+		}
+		result, err := textResult(out)
+		return result, nil, err
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "notion_update_page",
+		Description: "Update properties on an existing Notion page. Use notion_get_database to discover the schema first. Supports all property types: date, relation, multi_select, rich_text, number, url, select, checkbox, etc. Requires Notion draft or write connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		PageID     string                         `json:"page_id" jsonschema:"Notion page ID to update"`
+		Properties map[string]any `json:"properties" jsonschema:"Properties to set in Notion API format. Each key is the property name, value is the Notion property value object."`
+	}) (*gomcp.CallToolResult, any, error) {
+		if input.PageID == "" {
+			return errResult("page_id is required")
+		}
+		if len(input.Properties) == 0 {
+			return errResult("properties is required")
+		}
+		client, err := notionClientFromRequest(ctx, req, lookup, "draft")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		props, err := json.Marshal(input.Properties)
+		if err != nil {
+			return errResult(fmt.Sprintf("marshal properties: %v", err))
+		}
+		out, err := client.UpdatePage(ctx, input.PageID, json.RawMessage(props))
 		if err != nil {
 			return errResult(err.Error())
 		}

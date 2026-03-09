@@ -15,7 +15,8 @@ const notionAPIBase = "https://api.notion.com/v1"
 const notionAPIVersion = "2022-06-28"
 
 type NotionClient struct {
-	Token string
+	Token   string
+	BaseURL string
 }
 
 type NotionBlock struct {
@@ -54,8 +55,13 @@ type CreatePageOut struct {
 	NotionPage
 }
 
+type UpdatePageOut struct {
+	NotionPage
+}
+
 type GetDatabaseOut struct {
 	NotionDatabase
+	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
 type GetPageContentOut struct {
@@ -81,7 +87,11 @@ type SearchOut struct {
 }
 
 func (c *NotionClient) do(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (json.RawMessage, error) {
-	apiURL := notionAPIBase + path
+	base := c.BaseURL
+	if base == "" {
+		base = notionAPIBase
+	}
+	apiURL := base + path
 	if len(query) > 0 {
 		apiURL += "?" + query.Encode()
 	}
@@ -215,7 +225,7 @@ func (c *NotionClient) detectTitleProperty(ctx context.Context, databaseID strin
 	return "title"
 }
 
-func (c *NotionClient) CreatePage(ctx context.Context, parentPageID, parentDatabaseID, title, content string) (CreatePageOut, error) {
+func (c *NotionClient) CreatePage(ctx context.Context, parentPageID, parentDatabaseID, title, content string, extraProperties json.RawMessage) (CreatePageOut, error) {
 	var out CreatePageOut
 
 	parent := map[string]any{}
@@ -229,8 +239,19 @@ func (c *NotionClient) CreatePage(ctx context.Context, parentPageID, parentDatab
 		return out, errors.Newf("either parentPageID or parentDatabaseID is required")
 	}
 
-	properties := map[string]any{
-		titleProp: map[string]any{
+	properties := map[string]any{}
+	if len(extraProperties) > 0 {
+		var parsed map[string]any
+		if err := json.Unmarshal(extraProperties, &parsed); err != nil {
+			return out, errors.Wrap(err, "parse extra properties")
+		}
+		for k, v := range parsed {
+			properties[k] = v
+		}
+	}
+
+	if title != "" {
+		properties[titleProp] = map[string]any{
 			"title": []map[string]any{
 				{
 					"type": "text",
@@ -239,7 +260,7 @@ func (c *NotionClient) CreatePage(ctx context.Context, parentPageID, parentDatab
 					},
 				},
 			},
-		},
+		}
 	}
 
 	payload := map[string]any{
@@ -278,6 +299,36 @@ func (c *NotionClient) CreatePage(ctx context.Context, parentPageID, parentDatab
 	return out, nil
 }
 
+func (c *NotionClient) UpdatePage(ctx context.Context, pageID string, properties json.RawMessage) (UpdatePageOut, error) {
+	var out UpdatePageOut
+
+	if pageID == "" {
+		return out, errors.Newf("pageID is required")
+	}
+
+	parsed := map[string]any{}
+	if len(properties) > 0 {
+		if err := json.Unmarshal(properties, &parsed); err != nil {
+			return out, errors.Wrap(err, "parse properties")
+		}
+	}
+
+	payload := map[string]any{
+		"properties": parsed,
+	}
+
+	data, err := c.patch(ctx, "/pages/"+url.PathEscape(pageID), nil, payload)
+	if err != nil {
+		return out, errors.Wrap(err, "update page")
+	}
+
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, errors.Wrap(err, "decode updated page")
+	}
+
+	return out, nil
+}
+
 func (c *NotionClient) GetDatabase(ctx context.Context, databaseID string) (GetDatabaseOut, error) {
 	var out GetDatabaseOut
 
@@ -292,8 +343,9 @@ func (c *NotionClient) GetDatabase(ctx context.Context, databaseID string) (GetD
 		Description []struct {
 			PlainText string `json:"plain_text"`
 		} `json:"description"`
-		ID             string `json:"id"`
-		LastEditedTime string `json:"last_edited_time"`
+		ID             string          `json:"id"`
+		LastEditedTime string          `json:"last_edited_time"`
+		Properties     json.RawMessage `json:"properties"`
 		Title          []struct {
 			PlainText string `json:"plain_text"`
 		} `json:"title"`
@@ -307,6 +359,7 @@ func (c *NotionClient) GetDatabase(ctx context.Context, databaseID string) (GetD
 	out.CreatedTime = raw.CreatedTime
 	out.ID = raw.ID
 	out.LastEditedTime = raw.LastEditedTime
+	out.Properties = raw.Properties
 	out.URL = raw.URL
 
 	for _, t := range raw.Title {
