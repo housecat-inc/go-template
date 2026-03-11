@@ -46,7 +46,6 @@ type Server struct {
 	ExeDev            *exedev.Client
 	GitProxy *gh.Proxy
 	Hostname          string
-	NotionOAuth       ServiceOAuthConfig
 	OAuth             OAuthConfig
 	SlackOAuth        ServiceOAuthConfig
 	oauth2Config  *oauth2.Config
@@ -179,7 +178,7 @@ func (s *Server) Serve(addr string) error {
 	}
 	e.GET("/connect/granola/callback", s.HandleGranolaCallback, s.RequireAuth)
 	e.GET("/connect/slack/callback", s.HandleConnectCallback, s.RequireAuth)
-	e.GET("/connect/notion/callback", s.HandleConnectCallback, s.RequireAuth)
+	e.GET("/connect/notion/callback", s.HandleNotionCallback, s.RequireAuth)
 	e.GET("/auth/logout", s.HandleAuthLogout)
 
 	admin := e.Group("/admin", s.RequireAuth, s.RequireAdmin)
@@ -278,6 +277,7 @@ func (s *Server) Serve(addr string) error {
 		func(ctx context.Context, userID string) map[string]map[string]bool {
 			return s.connectedLevelsForUser(ctx, userID)
 		},
+		hcmcp.DefaultUpstreamTools(),
 	)
 	mcpHandler := gomcp.NewStreamableHTTPHandler(func(req *http.Request) *gomcp.Server {
 		return mcpServer

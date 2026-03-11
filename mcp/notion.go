@@ -6,516 +6,266 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/url"
+	"strings"
+	"sync"
 
 	"github.com/cockroachdb/errors"
 )
 
-const notionAPIBase = "https://api.notion.com/v1"
-const notionAPIVersion = "2022-06-28"
+const notionMCPEndpoint = "https://mcp.notion.com/mcp"
 
 type NotionClient struct {
-	Token   string
-	BaseURL string
+	Token string
 }
 
-type NotionBlock struct {
-	Content        json.RawMessage `json:"content"`
-	CreatedTime    string          `json:"created_time"`
-	HasChildren    bool            `json:"has_children"`
-	ID             string          `json:"id"`
-	LastEditedTime string          `json:"last_edited_time"`
-	Type           string          `json:"type"`
+// sessionCache caches MCP session IDs per access token to avoid re-initializing
+// on every tool call. Sessions may expire upstream, in which case we retry once.
+var (
+	sessionCache   = map[string]string{}
+	sessionCacheMu sync.Mutex
+)
+
+func getCachedSession(token string) string {
+	sessionCacheMu.Lock()
+	defer sessionCacheMu.Unlock()
+	return sessionCache[token]
 }
 
-type NotionDatabase struct {
-	Archived       bool   `json:"archived"`
-	CreatedTime    string `json:"created_time"`
-	Description    string `json:"description"`
-	ID             string `json:"id"`
-	LastEditedTime string `json:"last_edited_time"`
-	Title          string `json:"title"`
-	URL            string `json:"url"`
+func setCachedSession(token, sessionID string) {
+	sessionCacheMu.Lock()
+	defer sessionCacheMu.Unlock()
+	sessionCache[token] = sessionID
 }
 
-type NotionPage struct {
-	Archived       bool            `json:"archived"`
-	CreatedTime    string          `json:"created_time"`
-	ID             string          `json:"id"`
-	LastEditedTime string          `json:"last_edited_time"`
-	Properties     json.RawMessage `json:"properties"`
-	URL            string          `json:"url"`
+func clearCachedSession(token string) {
+	sessionCacheMu.Lock()
+	defer sessionCacheMu.Unlock()
+	delete(sessionCache, token)
 }
 
-type AppendBlocksOut struct {
-	Results json.RawMessage `json:"results"`
-}
-
-type CreatePageOut struct {
-	NotionPage
-}
-
-type UpdatePageOut struct {
-	NotionPage
-}
-
-type GetDatabaseOut struct {
-	NotionDatabase
-	Properties json.RawMessage `json:"properties,omitempty"`
-}
-
-type GetPageContentOut struct {
-	Blocks     []NotionBlock `json:"blocks"`
-	HasMore    bool          `json:"has_more"`
-	NextCursor string        `json:"next_cursor,omitempty"`
-}
-
-type GetPageOut struct {
-	NotionPage
-}
-
-type QueryDatabaseOut struct {
-	HasMore    bool              `json:"has_more"`
-	NextCursor string            `json:"next_cursor,omitempty"`
-	Results    []json.RawMessage `json:"results"`
-}
-
-type SearchOut struct {
-	HasMore    bool              `json:"has_more"`
-	NextCursor string            `json:"next_cursor,omitempty"`
-	Results    []json.RawMessage `json:"results"`
-}
-
-func (c *NotionClient) do(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (json.RawMessage, error) {
-	base := c.BaseURL
-	if base == "" {
-		base = notionAPIBase
-	}
-	apiURL := base + path
-	if len(query) > 0 {
-		apiURL += "?" + query.Encode()
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, apiURL, body)
+func (c *NotionClient) post(ctx context.Context, payload any, sessionID string) (*http.Response, []byte, error) {
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, errors.Wrap(err, "create request")
+		return nil, nil, errors.Wrap(err, "marshal request")
 	}
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, notionMCPEndpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "create request")
+	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Notion-Version", notionAPIVersion)
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	if sessionID != "" {
+		req.Header.Set("Mcp-Session-Id", sessionID)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "notion api request")
+		return nil, nil, errors.Wrap(err, "notion mcp request")
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "read response")
+		return nil, nil, errors.Wrap(err, "read response")
+	}
+
+	return resp, data, nil
+}
+
+func (c *NotionClient) initialize(ctx context.Context) (string, error) {
+	reqID := mcpRequestID.Add(1)
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      reqID,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2025-03-26",
+			"capabilities":   map[string]any{},
+			"clientInfo": map[string]any{
+				"name":    "Housecat",
+				"version": "1.0.0",
+			},
+		},
+	}
+
+	resp, data, err := c.post(ctx, payload, "")
+	if err != nil {
+		return "", errors.Wrap(err, "initialize")
 	}
 
 	if resp.StatusCode >= 400 {
-		var apiErr struct {
-			Code    string `json:"code"`
+		return "", errors.Newf("notion mcp initialize error (%d): %s", resp.StatusCode, string(data))
+	}
+
+	sessionID := resp.Header.Get("Mcp-Session-Id")
+	if sessionID == "" {
+		return "", errors.New("notion mcp: no session ID in initialize response")
+	}
+
+	notification := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/initialized",
+	}
+	_, _, err = c.post(ctx, notification, sessionID)
+	if err != nil {
+		return "", errors.Wrap(err, "send initialized notification")
+	}
+
+	return sessionID, nil
+}
+
+// getSession returns a cached session or initializes a new one.
+func (c *NotionClient) getSession(ctx context.Context) (string, error) {
+	if sid := getCachedSession(c.Token); sid != "" {
+		return sid, nil
+	}
+	sid, err := c.initialize(ctx)
+	if err != nil {
+		return "", err
+	}
+	setCachedSession(c.Token, sid)
+	return sid, nil
+}
+
+// parseSSEData extracts the last JSON-RPC data payload from an SSE response.
+// Scans all lines for "data:" prefixed content regardless of event framing.
+func parseSSEData(raw string) string {
+	var last string
+	for _, line := range strings.Split(raw, "\n") {
+		if strings.HasPrefix(line, "data: ") {
+			last = strings.TrimPrefix(line, "data: ")
+		} else if strings.HasPrefix(line, "data:") {
+			last = strings.TrimPrefix(line, "data:")
+		}
+	}
+	if last != "" {
+		return last
+	}
+	return raw
+}
+
+func (c *NotionClient) parseRPCResponse(data []byte) (json.RawMessage, error) {
+	parsed := parseSSEData(string(data))
+
+	var rpcResp struct {
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
 			Message string `json:"message"`
-		}
-		if json.Unmarshal(data, &apiErr) == nil && apiErr.Message != "" {
-			return nil, errors.Newf("notion api error (%d): %s", resp.StatusCode, apiErr.Message)
-		}
-		return nil, errors.Newf("notion api error (%d): %s", resp.StatusCode, string(data))
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(parsed), &rpcResp); err != nil {
+		return nil, errors.Wrap(err, "decode mcp response")
 	}
 
-	return json.RawMessage(data), nil
-}
-
-func (c *NotionClient) get(ctx context.Context, path string, query url.Values) (json.RawMessage, error) {
-	return c.do(ctx, http.MethodGet, path, query, nil, "")
-}
-
-func (c *NotionClient) patch(ctx context.Context, path string, query url.Values, payload any) (json.RawMessage, error) {
-	var body io.Reader
-	var ct string
-	if payload != nil {
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return nil, errors.Wrap(err, "marshal payload")
-		}
-		body = bytes.NewReader(data)
-		ct = "application/json"
-	}
-	return c.do(ctx, http.MethodPatch, path, query, body, ct)
-}
-
-func (c *NotionClient) post(ctx context.Context, path string, query url.Values, payload any) (json.RawMessage, error) {
-	var body io.Reader
-	var ct string
-	if payload != nil {
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return nil, errors.Wrap(err, "marshal payload")
-		}
-		body = bytes.NewReader(data)
-		ct = "application/json"
-	}
-	return c.do(ctx, http.MethodPost, path, query, body, ct)
-}
-
-func (c *NotionClient) AppendBlocks(ctx context.Context, blockID string, texts []string) (AppendBlocksOut, error) {
-	var out AppendBlocksOut
-
-	children := make([]map[string]any, 0, len(texts))
-	for _, text := range texts {
-		children = append(children, map[string]any{
-			"object": "block",
-			"type":   "paragraph",
-			"paragraph": map[string]any{
-				"rich_text": []map[string]any{
-					{
-						"type": "text",
-						"text": map[string]any{
-							"content": text,
-						},
-					},
-				},
-			},
-		})
+	if rpcResp.Error != nil {
+		return nil, errors.Newf("notion mcp error: %s", rpcResp.Error.Message)
 	}
 
+	return rpcResp.Result, nil
+}
+
+func (c *NotionClient) ListTools(ctx context.Context) (json.RawMessage, error) {
+	sessionID, err := c.initialize(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	reqID := mcpRequestID.Add(1)
 	payload := map[string]any{
-		"children": children,
+		"jsonrpc": "2.0",
+		"id":      reqID,
+		"method":  "tools/list",
+		"params":  map[string]any{},
 	}
 
-	data, err := c.patch(ctx, "/blocks/"+url.PathEscape(blockID)+"/children", nil, payload)
+	resp, data, err := c.post(ctx, payload, sessionID)
 	if err != nil {
-		return out, errors.Wrap(err, "append blocks")
+		return nil, err
 	}
 
-	var resp struct {
-		Results json.RawMessage `json:"results"`
+	if resp.StatusCode >= 400 {
+		return nil, errors.Newf("notion mcp error (%d): %s", resp.StatusCode, string(data))
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return out, errors.Wrap(err, "decode append blocks")
+
+	result, err := c.parseRPCResponse(data)
+	if err != nil {
+		return nil, err
 	}
-	out.Results = resp.Results
-	return out, nil
+
+	return result, nil
 }
 
-func (c *NotionClient) detectTitleProperty(ctx context.Context, databaseID string) string {
-	data, err := c.get(ctx, "/databases/"+url.PathEscape(databaseID), nil)
+func (c *NotionClient) CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error) {
+	return c.callToolWithRetry(ctx, toolName, arguments, true)
+}
+
+func (c *NotionClient) callToolWithRetry(ctx context.Context, toolName string, arguments map[string]any, canRetry bool) (json.RawMessage, error) {
+	sessionID, err := c.getSession(ctx)
 	if err != nil {
-		return "title"
+		return nil, err
 	}
-	var db struct {
-		Properties map[string]struct {
+
+	reqID := mcpRequestID.Add(1)
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      reqID,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      toolName,
+			"arguments": arguments,
+		},
+	}
+
+	resp, data, err := c.post(ctx, payload, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// If session expired, clear cache and retry once with a fresh session.
+	if resp.StatusCode == http.StatusBadRequest && canRetry {
+		clearCachedSession(c.Token)
+		return c.callToolWithRetry(ctx, toolName, arguments, false)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, errors.Newf("notion mcp error (%d): %s", resp.StatusCode, string(data))
+	}
+
+	result, err := c.parseRPCResponse(data)
+	if err != nil {
+		return nil, err
+	}
+
+	var toolResult struct {
+		Content []struct {
 			Type string `json:"type"`
-		} `json:"properties"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
 	}
-	if err := json.Unmarshal(data, &db); err != nil {
-		return "title"
-	}
-	for name, prop := range db.Properties {
-		if prop.Type == "title" {
-			return name
-		}
-	}
-	return "title"
-}
-
-func (c *NotionClient) CreatePage(ctx context.Context, parentPageID, parentDatabaseID, title, content string, extraProperties json.RawMessage) (CreatePageOut, error) {
-	var out CreatePageOut
-
-	parent := map[string]any{}
-	titleProp := "title"
-	if parentDatabaseID != "" {
-		parent["database_id"] = parentDatabaseID
-		titleProp = c.detectTitleProperty(ctx, parentDatabaseID)
-	} else if parentPageID != "" {
-		parent["page_id"] = parentPageID
-	} else {
-		return out, errors.Newf("either parentPageID or parentDatabaseID is required")
+	if err := json.Unmarshal(result, &toolResult); err != nil {
+		return nil, errors.Wrap(err, "decode tool result")
 	}
 
-	properties := map[string]any{}
-	if len(extraProperties) > 0 {
-		var parsed map[string]any
-		if err := json.Unmarshal(extraProperties, &parsed); err != nil {
-			return out, errors.Wrap(err, "parse extra properties")
-		}
-		for k, v := range parsed {
-			properties[k] = v
-		}
-	}
-
-	if title != "" {
-		properties[titleProp] = map[string]any{
-			"title": []map[string]any{
-				{
-					"type": "text",
-					"text": map[string]any{
-						"content": title,
-					},
-				},
-			},
-		}
-	}
-
-	payload := map[string]any{
-		"parent":     parent,
-		"properties": properties,
-	}
-
-	if content != "" {
-		payload["children"] = []map[string]any{
-			{
-				"object": "block",
-				"type":   "paragraph",
-				"paragraph": map[string]any{
-					"rich_text": []map[string]any{
-						{
-							"type": "text",
-							"text": map[string]any{
-								"content": content,
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
-	data, err := c.post(ctx, "/pages", nil, payload)
-	if err != nil {
-		return out, errors.Wrap(err, "create page")
-	}
-
-	if err := json.Unmarshal(data, &out); err != nil {
-		return out, errors.Wrap(err, "decode created page")
-	}
-
-	return out, nil
-}
-
-func (c *NotionClient) UpdatePage(ctx context.Context, pageID string, properties json.RawMessage) (UpdatePageOut, error) {
-	var out UpdatePageOut
-
-	if pageID == "" {
-		return out, errors.Newf("pageID is required")
-	}
-
-	parsed := map[string]any{}
-	if len(properties) > 0 {
-		if err := json.Unmarshal(properties, &parsed); err != nil {
-			return out, errors.Wrap(err, "parse properties")
-		}
-	}
-
-	payload := map[string]any{
-		"properties": parsed,
-	}
-
-	data, err := c.patch(ctx, "/pages/"+url.PathEscape(pageID), nil, payload)
-	if err != nil {
-		return out, errors.Wrap(err, "update page")
-	}
-
-	if err := json.Unmarshal(data, &out); err != nil {
-		return out, errors.Wrap(err, "decode updated page")
-	}
-
-	return out, nil
-}
-
-func (c *NotionClient) GetDatabase(ctx context.Context, databaseID string) (GetDatabaseOut, error) {
-	var out GetDatabaseOut
-
-	data, err := c.get(ctx, "/databases/"+url.PathEscape(databaseID), nil)
-	if err != nil {
-		return out, errors.Wrap(err, "get database")
-	}
-
-	var raw struct {
-		Archived    bool   `json:"archived"`
-		CreatedTime string `json:"created_time"`
-		Description []struct {
-			PlainText string `json:"plain_text"`
-		} `json:"description"`
-		ID             string          `json:"id"`
-		LastEditedTime string          `json:"last_edited_time"`
-		Properties     json.RawMessage `json:"properties"`
-		Title          []struct {
-			PlainText string `json:"plain_text"`
-		} `json:"title"`
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return out, errors.Wrap(err, "decode database")
-	}
-
-	out.Archived = raw.Archived
-	out.CreatedTime = raw.CreatedTime
-	out.ID = raw.ID
-	out.LastEditedTime = raw.LastEditedTime
-	out.Properties = raw.Properties
-	out.URL = raw.URL
-
-	for _, t := range raw.Title {
-		out.Title += t.PlainText
-	}
-	for _, d := range raw.Description {
-		out.Description += d.PlainText
-	}
-
-	return out, nil
-}
-
-func (c *NotionClient) GetPage(ctx context.Context, pageID string) (GetPageOut, error) {
-	var out GetPageOut
-
-	data, err := c.get(ctx, "/pages/"+url.PathEscape(pageID), nil)
-	if err != nil {
-		return out, errors.Wrap(err, "get page")
-	}
-
-	if err := json.Unmarshal(data, &out); err != nil {
-		return out, errors.Wrap(err, "decode page")
-	}
-
-	return out, nil
-}
-
-func (c *NotionClient) GetPageContent(ctx context.Context, pageID string) (GetPageContentOut, error) {
-	var out GetPageContentOut
-
-	params := url.Values{
-		"page_size": {"100"},
-	}
-
-	data, err := c.get(ctx, "/blocks/"+url.PathEscape(pageID)+"/children", params)
-	if err != nil {
-		return out, errors.Wrap(err, "get page content")
-	}
-
-	var resp struct {
-		HasMore    bool   `json:"has_more"`
-		NextCursor string `json:"next_cursor"`
-		Results    []struct {
-			CreatedTime    string `json:"created_time"`
-			HasChildren    bool   `json:"has_children"`
-			ID             string `json:"id"`
-			LastEditedTime string `json:"last_edited_time"`
-			Type           string `json:"type"`
-		}
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return out, errors.Wrap(err, "decode page content")
-	}
-
-	var resultsWrapper struct {
-		Results []json.RawMessage `json:"results"`
-	}
-	if err := json.Unmarshal(data, &resultsWrapper); err != nil {
-		return out, errors.Wrap(err, "decode page content results")
-	}
-
-	out.HasMore = resp.HasMore
-	out.NextCursor = resp.NextCursor
-	out.Blocks = make([]NotionBlock, len(resp.Results))
-	for i, r := range resp.Results {
-		out.Blocks[i] = NotionBlock{
-			CreatedTime:    r.CreatedTime,
-			HasChildren:    r.HasChildren,
-			ID:             r.ID,
-			LastEditedTime: r.LastEditedTime,
-			Type:           r.Type,
-		}
-		if i < len(resultsWrapper.Results) {
-			var blockMap map[string]json.RawMessage
-			if err := json.Unmarshal(resultsWrapper.Results[i], &blockMap); err == nil {
-				if typeContent, ok := blockMap[r.Type]; ok {
-					out.Blocks[i].Content = typeContent
-				}
+	if toolResult.IsError {
+		var texts []string
+		for _, c := range toolResult.Content {
+			if c.Type == "text" {
+				texts = append(texts, c.Text)
 			}
 		}
+		return nil, errors.Newf("notion tool error: %s", strings.Join(texts, "; "))
 	}
 
-	return out, nil
-}
-
-func (c *NotionClient) QueryDatabase(ctx context.Context, databaseID string, pageSize int, startCursor string) (QueryDatabaseOut, error) {
-	var out QueryDatabaseOut
-	if pageSize <= 0 {
-		pageSize = 10
-	}
-
-	payload := map[string]any{
-		"page_size": pageSize,
-	}
-	if startCursor != "" {
-		payload["start_cursor"] = startCursor
-	}
-
-	data, err := c.post(ctx, "/databases/"+url.PathEscape(databaseID)+"/query", nil, payload)
-	if err != nil {
-		return out, errors.Wrap(err, "query database")
-	}
-
-	var resp struct {
-		HasMore    bool              `json:"has_more"`
-		NextCursor string            `json:"next_cursor"`
-		Results    []json.RawMessage `json:"results"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return out, errors.Wrap(err, "decode query database")
-	}
-
-	out.HasMore = resp.HasMore
-	out.NextCursor = resp.NextCursor
-	out.Results = resp.Results
-	return out, nil
-}
-
-func (c *NotionClient) Search(ctx context.Context, query string, pageSize int, startCursor string, filterValue string) (SearchOut, error) {
-	var out SearchOut
-	if pageSize <= 0 {
-		pageSize = 10
-	}
-
-	payload := map[string]any{
-		"page_size": pageSize,
-	}
-	if query != "" {
-		payload["query"] = query
-	}
-	if startCursor != "" {
-		payload["start_cursor"] = startCursor
-	}
-	if filterValue != "" {
-		payload["filter"] = map[string]any{
-			"property": "object",
-			"value":    filterValue,
+	var texts []string
+	for _, c := range toolResult.Content {
+		if c.Type == "text" {
+			texts = append(texts, c.Text)
 		}
 	}
 
-	data, err := c.post(ctx, "/search", nil, payload)
-	if err != nil {
-		return out, errors.Wrap(err, "search")
-	}
-
-	var resp struct {
-		HasMore    bool              `json:"has_more"`
-		NextCursor string            `json:"next_cursor"`
-		Results    []json.RawMessage `json:"results"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return out, errors.Wrap(err, "decode search")
-	}
-
-	out.HasMore = resp.HasMore
-	out.NextCursor = resp.NextCursor
-	out.Results = resp.Results
-	return out, nil
+	return json.RawMessage(strings.Join(texts, "\n")), nil
 }

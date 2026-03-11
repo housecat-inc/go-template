@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/cockroachdb/errors"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -78,11 +77,9 @@ var Services = []Service{
 	{
 		ID:          "notion",
 		Name:        "Notion",
-		Description: "Pages and databases via Notion API",
+		Description: "Pages and databases via Notion MCP",
 		Connections: []Connection{
-			{Level: "read", Description: "Get pages and databases", Scopes: []string{"notion:read"}},
-			{Level: "draft", Description: "Create private pages for review", Scopes: []string{"notion:write"}},
-			{Level: "write", Description: "Create and share pages", Scopes: []string{"notion:write"}},
+			{Level: "write", Description: "Read and write pages and databases", Scopes: []string{"openid", "email", "offline_access"}},
 		},
 	},
 	{
@@ -221,7 +218,15 @@ func errResult(msg string) (*gomcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
-func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup) *gomcp.Server {
+// UpstreamTool is a tool definition fetched from an upstream MCP server.
+type UpstreamTool struct {
+	Service     string          // "notion" or "granola"
+	Name        string          // upstream tool name (e.g. "notion-search")
+	Description string          // tool description
+	InputSchema json.RawMessage // exact upstream JSON schema
+}
+
+func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup, upstreamTools []UpstreamTool) *gomcp.Server {
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "housecat",
 		Version: "0.1.0",
@@ -742,296 +747,68 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup)
 		return result, nil, err
 	})
 
-	// Granola tools
+	// Upstream MCP tools (Granola, Notion)
+	// Registered dynamically from tool definitions fetched at startup.
 
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "granola_query_meetings",
-		Description: "Query Granola about the user's meetings using natural language. Returns a response with inline citation links to source meeting notes. Prefer this for open-ended questions about meeting content, decisions, action items, and follow-ups.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		DocumentIDs []string `json:"document_ids,omitempty" jsonschema:"Optional list of specific meeting IDs to limit context to"`
-		Query       string   `json:"query" jsonschema:"Natural language query about meetings"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.Query == "" {
-			return errResult("query is required")
-		}
-		client, err := granolaClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		args := map[string]any{"query": input.Query}
-		if len(input.DocumentIDs) > 0 {
-			args["document_ids"] = input.DocumentIDs
-		}
-		out, err := client.CallTool(ctx, "query_granola_meetings", args)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}}}, nil, nil
-	})
+	type mcpClientFunc func(ctx context.Context, req *gomcp.CallToolRequest) (interface {
+		CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error)
+	}, error)
 
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "granola_list_meetings",
-		Description: "List Granola meeting notes within a time range. Returns meeting titles and metadata. Use granola_get_meetings to retrieve detailed content after identifying relevant meetings.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		CustomEnd   string `json:"custom_end,omitempty" jsonschema:"ISO date for custom range end (required if time_range is custom)"`
-		CustomStart string `json:"custom_start,omitempty" jsonschema:"ISO date for custom range start (required if time_range is custom)"`
-		TimeRange   string `json:"time_range,omitempty" jsonschema:"Time range: this_week, last_week, last_30_days, or custom (default last_30_days)"`
-	}) (*gomcp.CallToolResult, any, error) {
-		client, err := granolaClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		args := map[string]any{}
-		if input.TimeRange != "" {
-			args["time_range"] = input.TimeRange
-		}
-		if input.CustomStart != "" {
-			args["custom_start"] = input.CustomStart
-		}
-		if input.CustomEnd != "" {
-			args["custom_end"] = input.CustomEnd
-		}
-		out, err := client.CallTool(ctx, "list_meetings", args)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}}}, nil, nil
-	})
+	serviceClients := map[string]mcpClientFunc{
+		"granola": func(ctx context.Context, req *gomcp.CallToolRequest) (interface {
+			CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error)
+		}, error) {
+			return granolaClientFromRequest(ctx, req, lookup, "read")
+		},
+		"notion": func(ctx context.Context, req *gomcp.CallToolRequest) (interface {
+			CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error)
+		}, error) {
+			return notionClientFromRequest(ctx, req, lookup, "write")
+		},
+	}
 
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "granola_get_meetings",
-		Description: "Get detailed meeting information for one or more Granola meetings by ID. Returns notes, AI-generated summary, attendees, and metadata.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		MeetingIDs []string `json:"meeting_ids" jsonschema:"Array of meeting UUIDs (max 10)"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if len(input.MeetingIDs) == 0 {
-			return errResult("meeting_ids is required")
+	for _, ut := range upstreamTools {
+		ut := ut // capture
+		clientFn, ok := serviceClients[ut.Service]
+		if !ok {
+			continue
 		}
-		client, err := granolaClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.CallTool(ctx, "get_meetings", map[string]any{"meeting_ids": input.MeetingIDs})
-		if err != nil {
-			return errResult(err.Error())
-		}
-		return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}}}, nil, nil
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "granola_get_meeting_transcript",
-		Description: "Get the full verbatim transcript for a specific Granola meeting by ID. Use when the user needs exact quotes or specific wording.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		MeetingID string `json:"meeting_id" jsonschema:"Meeting UUID"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.MeetingID == "" {
-			return errResult("meeting_id is required")
-		}
-		client, err := granolaClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.CallTool(ctx, "get_meeting_transcript", map[string]any{"meeting_id": input.MeetingID})
-		if err != nil {
-			return errResult(err.Error())
-		}
-		return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}}}, nil, nil
-	})
-
-	// Notion tools
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "notion_search",
-		Description: "Search Notion pages and databases by keyword. Requires Notion read connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Filter      string `json:"filter,omitempty" jsonschema:"Filter by object type: 'page' or 'database'"`
-		PageSize    int    `json:"page_size,omitempty" jsonschema:"Max results to return (default 10)"`
-		Query       string `json:"query,omitempty" jsonschema:"Search query text"`
-		StartCursor string `json:"start_cursor,omitempty" jsonschema:"Pagination cursor from previous response"`
-	}) (*gomcp.CallToolResult, any, error) {
-		client, err := notionClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.Search(ctx, input.Query, input.PageSize, input.StartCursor, input.Filter)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "notion_get_page",
-		Description: "Get a Notion page's properties by page ID. Requires Notion read connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		PageID string `json:"page_id" jsonschema:"Notion page ID"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.PageID == "" {
-			return errResult("page_id is required")
-		}
-		client, err := notionClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.GetPage(ctx, input.PageID)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "notion_get_page_content",
-		Description: "Get the content blocks of a Notion page. Requires Notion read connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		PageID string `json:"page_id" jsonschema:"Notion page ID"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.PageID == "" {
-			return errResult("page_id is required")
-		}
-		client, err := notionClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.GetPageContent(ctx, input.PageID)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "notion_get_database",
-		Description: "Get a Notion database's full schema including all property definitions (types, options, relation targets). Use this to discover property names and types before creating or updating pages. Requires Notion read connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		DatabaseID string `json:"database_id" jsonschema:"Notion database ID"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.DatabaseID == "" {
-			return errResult("database_id is required")
-		}
-		client, err := notionClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.GetDatabase(ctx, input.DatabaseID)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "notion_query_database",
-		Description: "Query rows from a Notion database. Requires Notion read connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		DatabaseID  string `json:"database_id" jsonschema:"Notion database ID"`
-		PageSize    int    `json:"page_size,omitempty" jsonschema:"Max results to return (default 10)"`
-		StartCursor string `json:"start_cursor,omitempty" jsonschema:"Pagination cursor from previous response"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.DatabaseID == "" {
-			return errResult("database_id is required")
-		}
-		client, err := notionClientFromRequest(ctx, req, lookup, "read")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.QueryDatabase(ctx, input.DatabaseID, input.PageSize, input.StartCursor)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "notion_create_page",
-		Description: "Create a new Notion page under a parent page or database. Use 'properties' for database-specific fields (dates, relations, multi-select, etc.) in Notion API format. Use notion_get_database first to discover the schema. Requires Notion draft or write connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Content          string                         `json:"content,omitempty" jsonschema:"Initial page content (optional paragraph text)"`
-		ParentDatabaseID string                         `json:"parent_database_id,omitempty" jsonschema:"Parent database ID (provide this or parent_page_id)"`
-		ParentPageID     string                         `json:"parent_page_id,omitempty" jsonschema:"Parent page ID (provide this or parent_database_id)"`
-		Properties       map[string]any `json:"properties,omitempty" jsonschema:"Database properties in Notion API format. Each key is the property name, value is the Notion property value object (e.g. date, relation, multi_select, rich_text, etc.). Title property is set automatically from the title field."`
-		Title            string                         `json:"title" jsonschema:"Page title"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.Title == "" {
-			return errResult("title is required")
-		}
-		if input.ParentPageID == "" && input.ParentDatabaseID == "" {
-			return errResult("either parent_page_id or parent_database_id is required")
-		}
-		client, err := notionClientFromRequest(ctx, req, lookup, "draft")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		props, err := json.Marshal(input.Properties)
-		if err != nil {
-			return errResult(fmt.Sprintf("marshal properties: %v", err))
-		}
-		out, err := client.CreatePage(ctx, input.ParentPageID, input.ParentDatabaseID, input.Title, input.Content, json.RawMessage(props))
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "notion_update_page",
-		Description: "Update properties on an existing Notion page. Use notion_get_database to discover the schema first. Supports all property types: date, relation, multi_select, rich_text, number, url, select, checkbox, etc. Requires Notion draft or write connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		PageID     string                         `json:"page_id" jsonschema:"Notion page ID to update"`
-		Properties map[string]any `json:"properties" jsonschema:"Properties to set in Notion API format. Each key is the property name, value is the Notion property value object."`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.PageID == "" {
-			return errResult("page_id is required")
-		}
-		if len(input.Properties) == 0 {
-			return errResult("properties is required")
-		}
-		client, err := notionClientFromRequest(ctx, req, lookup, "draft")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		props, err := json.Marshal(input.Properties)
-		if err != nil {
-			return errResult(fmt.Sprintf("marshal properties: %v", err))
-		}
-		out, err := client.UpdatePage(ctx, input.PageID, json.RawMessage(props))
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "notion_append_content",
-		Description: "Append paragraph blocks to a Notion page. Requires Notion draft or write connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		PageID string   `json:"page_id" jsonschema:"Notion page or block ID to append to"`
-		Texts  []string `json:"texts" jsonschema:"List of paragraph texts to append"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.PageID == "" {
-			return errResult("page_id is required")
-		}
-		if len(input.Texts) == 0 {
-			return errResult("texts is required")
-		}
-		client, err := notionClientFromRequest(ctx, req, lookup, "draft")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.AppendBlocks(ctx, input.PageID, input.Texts)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
+		server.AddTool(&gomcp.Tool{
+			Name:        ut.Name,
+			Description: ut.Description,
+			InputSchema: ut.InputSchema,
+		}, func(ctx context.Context, req *gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+			client, err := clientFn(ctx, req)
+			if err != nil {
+				return &gomcp.CallToolResult{
+					Content: []gomcp.Content{&gomcp.TextContent{Text: err.Error()}},
+					IsError: true,
+				}, nil
+			}
+			var args map[string]any
+			if req.Params.Arguments != nil {
+				if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+					return &gomcp.CallToolResult{
+						Content: []gomcp.Content{&gomcp.TextContent{Text: "invalid arguments: " + err.Error()}},
+						IsError: true,
+					}, nil
+				}
+			}
+			if args == nil {
+				args = map[string]any{}
+			}
+			out, err := client.CallTool(ctx, ut.Name, args)
+			if err != nil {
+				return &gomcp.CallToolResult{
+					Content: []gomcp.Content{&gomcp.TextContent{Text: err.Error()}},
+					IsError: true,
+				}, nil
+			}
+			return &gomcp.CallToolResult{
+				Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}},
+			}, nil
+		})
+	}
 
 	// Slack tools
 

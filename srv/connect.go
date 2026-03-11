@@ -74,20 +74,6 @@ func (s *Server) oauthConfigForService(r *http.Request, service, level string) (
 			RedirectURL: callbackURL,
 			Scopes:      lvl.Scopes,
 		}, nil
-	case "notion":
-		if s.NotionOAuth.ClientID == "" {
-			return nil, errors.New("notion oauth not configured")
-		}
-		return &oauth2.Config{
-			ClientID:     s.NotionOAuth.ClientID,
-			ClientSecret: s.NotionOAuth.ClientSecret,
-			Endpoint: oauth2.Endpoint{
-				AuthURL:  "https://api.notion.com/v1/oauth/authorize",
-				TokenURL: "https://api.notion.com/v1/oauth/token",
-			},
-			RedirectURL: callbackURL,
-			Scopes:      nil,
-		}, nil
 	default:
 		return nil, errors.Newf("oauth not supported for service: %s", service)
 	}
@@ -109,6 +95,9 @@ func (s *Server) HandleConnectEnable(c echo.Context) error {
 	service := c.Param("service")
 	if service == "granola" {
 		return s.HandleGranolaConnectEnable(c)
+	}
+	if service == "notion" {
+		return s.HandleNotionConnectEnable(c)
 	}
 
 	r := c.Request()
@@ -140,9 +129,6 @@ func (s *Server) HandleConnectEnable(c echo.Context) error {
 	opts := []oauth2.AuthCodeOption{oauth2.AccessTypeOffline}
 	if googleServices[service] {
 		opts = append(opts, oauth2.SetAuthURLParam("prompt", "consent"))
-	}
-	if service == "notion" {
-		opts = append(opts, oauth2.SetAuthURLParam("owner", "user"))
 	}
 	if service == "slack" {
 		opts = append(opts, oauth2.SetAuthURLParam("user_scope", strings.Join(cfg.Scopes, ",")))
@@ -353,7 +339,12 @@ func (s *Server) refreshOAuthToken(ctx context.Context, tok dbgen.OauthToken) (s
 	case "slack":
 		return "", errors.New("slack tokens do not support refresh")
 	case "notion":
-		return "", errors.New("notion tokens do not support refresh")
+		endpoint = oauth2.Endpoint{
+			TokenURL:  "https://mcp.notion.com/token",
+			AuthStyle: oauth2.AuthStyleInParams,
+		}
+		clientID = tok.ClientID
+		clientSecret = ""
 	case "granola":
 		endpoint = oauth2.Endpoint{
 			TokenURL:  "https://mcp-auth.granola.ai/oauth2/token",

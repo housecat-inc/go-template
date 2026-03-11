@@ -3,8 +3,6 @@ package srv
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -21,24 +19,24 @@ import (
 )
 
 const (
-	granolaAuthServer    = "https://mcp-auth.granola.ai"
-	granolaAuthorizeURL  = granolaAuthServer + "/oauth2/authorize"
-	granolaRegisterURL   = granolaAuthServer + "/oauth2/register"
-	granolaTokenURL      = granolaAuthServer + "/oauth2/token"
+	notionAuthServer   = "https://mcp.notion.com"
+	notionAuthorizeURL = notionAuthServer + "/authorize"
+	notionRegisterURL  = notionAuthServer + "/register"
+	notionTokenURL     = notionAuthServer + "/token"
 )
 
-type granolaClientRegistration struct {
+type notionClientRegistration struct {
 	ClientID                string   `json:"client_id"`
 	ClientSecret            string   `json:"client_secret,omitempty"`
 	RedirectURIs            []string `json:"redirect_uris"`
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 }
 
-func (s *Server) granolaCallbackURL(r *http.Request) string {
-	return s.issuerURL(r) + "/connect/granola/callback"
+func (s *Server) notionCallbackURL(r *http.Request) string {
+	return s.issuerURL(r) + "/connect/notion/callback"
 }
 
-func registerGranolaClient(ctx context.Context, callbackURL string) (*granolaClientRegistration, error) {
+func registerNotionClient(ctx context.Context, callbackURL string) (*notionClientRegistration, error) {
 	body, err := json.Marshal(map[string]any{
 		"client_name":                "Housecat",
 		"grant_types":                []string{"authorization_code", "refresh_token"},
@@ -50,7 +48,7 @@ func registerGranolaClient(ctx context.Context, callbackURL string) (*granolaCli
 		return nil, errors.Wrap(err, "marshal registration")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, granolaRegisterURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, notionRegisterURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create registration request")
 	}
@@ -68,35 +66,24 @@ func registerGranolaClient(ctx context.Context, callbackURL string) (*granolaCli
 		return nil, errors.Newf("registration failed: %d %s", resp.StatusCode, string(respBody))
 	}
 
-	var reg granolaClientRegistration
+	var reg notionClientRegistration
 	if err := json.NewDecoder(resp.Body).Decode(&reg); err != nil {
 		return nil, errors.Wrap(err, "decode registration")
 	}
 	return &reg, nil
 }
 
-func generatePKCE() (verifier, challenge string, err error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", "", errors.Wrap(err, "generate verifier")
-	}
-	verifier = base64.RawURLEncoding.EncodeToString(b)
-	h := sha256.Sum256([]byte(verifier))
-	challenge = base64.RawURLEncoding.EncodeToString(h[:])
-	return verifier, challenge, nil
-}
-
-func (s *Server) HandleGranolaConnectEnable(c echo.Context) error {
+func (s *Server) HandleNotionConnectEnable(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
-	callbackURL := s.granolaCallbackURL(r)
+	callbackURL := s.notionCallbackURL(r)
 
-	reg, err := registerGranolaClient(ctx, callbackURL)
+	reg, err := registerNotionClient(ctx, callbackURL)
 	if err != nil {
-		slog.Error("granola register", "error", err)
-		return echo.NewHTTPError(http.StatusBadGateway, "failed to register with Granola")
+		slog.Error("notion register", "error", err)
+		return echo.NewHTTPError(http.StatusBadGateway, "failed to register with Notion")
 	}
 
 	state, err := randomHex(16)
@@ -119,7 +106,7 @@ func (s *Server) HandleGranolaConnectEnable(c echo.Context) error {
 	}
 
 	c.SetCookie(&http.Cookie{
-		Name:     "granola_state",
+		Name:     "notion_state",
 		Value:    base64.RawURLEncoding.EncodeToString(stateData),
 		Path:     "/",
 		HttpOnly: true,
@@ -138,22 +125,22 @@ func (s *Server) HandleGranolaConnectEnable(c echo.Context) error {
 		"state":                 {state},
 	}
 
-	return c.Redirect(http.StatusFound, granolaAuthorizeURL+"?"+params.Encode())
+	return c.Redirect(http.StatusFound, notionAuthorizeURL+"?"+params.Encode())
 }
 
-func (s *Server) HandleGranolaCallback(c echo.Context) error {
+func (s *Server) HandleNotionCallback(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
 	userID := c.Get("userID").(string)
 	userEmail := c.Get("userEmail").(string)
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
-	stateCookie, err := r.Cookie("granola_state")
+	stateCookie, err := r.Cookie("notion_state")
 	if err != nil || stateCookie.Value == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "missing state cookie")
 	}
 	c.SetCookie(&http.Cookie{
-		Name:     "granola_state",
+		Name:     "notion_state",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
@@ -181,8 +168,8 @@ func (s *Server) HandleGranolaCallback(c echo.Context) error {
 	}
 
 	if errParam := c.QueryParam("error"); errParam != "" {
-		slog.Warn("granola oauth denied", "error", errParam, "description", c.QueryParam("error_description"))
-		return c.Redirect(http.StatusFound, "/connect/granola")
+		slog.Warn("notion oauth denied", "error", errParam, "description", c.QueryParam("error_description"))
+		return c.Redirect(http.StatusFound, "/connect/notion")
 	}
 
 	code := c.QueryParam("code")
@@ -194,7 +181,7 @@ func (s *Server) HandleGranolaCallback(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid oauth state")
 	}
 
-	callbackURL := s.granolaCallbackURL(r)
+	callbackURL := s.notionCallbackURL(r)
 
 	data := url.Values{
 		"client_id":     {saved.ClientID},
@@ -204,7 +191,7 @@ func (s *Server) HandleGranolaCallback(c echo.Context) error {
 		"redirect_uri":  {callbackURL},
 	}
 
-	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPost, granolaTokenURL, strings.NewReader(data.Encode()))
+	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPost, notionTokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, "failed to exchange code")
 	}
@@ -213,14 +200,14 @@ func (s *Server) HandleGranolaCallback(c echo.Context) error {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	resp, err := httpClient.Do(tokenReq)
 	if err != nil {
-		slog.Error("granola token exchange", "error", err)
+		slog.Error("notion token exchange", "error", err)
 		return echo.NewHTTPError(http.StatusBadGateway, "failed to exchange code")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		slog.Error("granola token exchange", "status", resp.StatusCode, "body", string(respBody))
+		slog.Error("notion token exchange", "status", resp.StatusCode, "body", string(respBody))
 		return echo.NewHTTPError(http.StatusBadGateway, "token exchange failed")
 	}
 
@@ -249,26 +236,26 @@ func (s *Server) HandleGranolaCallback(c echo.Context) error {
 		AccessToken:  tokenResp.AccessToken,
 		ClientID:     saved.ClientID,
 		ExpiresAt:    expiresAt,
-		Level:        "read",
-		Provider:     "granola",
+		Level:        "write",
+		Provider:     "notion",
 		RefreshToken: tokenResp.RefreshToken,
 		Scopes:       "openid,email,offline_access",
-		Service:      "granola",
+		Service:      "notion",
 		UserID:       userID,
 	}); err != nil {
-		return errors.Wrap(err, "save granola token")
+		return errors.Wrap(err, "save notion token")
 	}
 
-	meta := userEmail + " connected Granola (read)"
+	meta := userEmail + " connected Notion (write)"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 		ActorID:    userID,
 		ActorType:  "user",
 		Action:     "connected_integration",
-		ObjectID:   "granola",
+		ObjectID:   "notion",
 		ObjectType: "integration",
 		Metadata:   &meta,
 	})
 
-	slog.Info("granola connected", "user", userEmail)
-	return c.Redirect(http.StatusFound, "/connect/granola")
+	slog.Info("notion connected", "user", userEmail)
+	return c.Redirect(http.StatusFound, "/connect/notion")
 }

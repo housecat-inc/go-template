@@ -23,7 +23,7 @@ func TestConnections(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -36,7 +36,7 @@ func TestConnections(t *testing.T) {
 
 	tools, err := session.ListTools(ctx, nil)
 	a.NoError(err)
-	a.GreaterOrEqual(len(tools.Tools), 43)
+	a.GreaterOrEqual(len(tools.Tools), 25)
 
 	toolNames := make([]string, len(tools.Tools))
 	for i, t := range tools.Tools {
@@ -62,17 +62,8 @@ func TestConnections(t *testing.T) {
 	a.Contains(toolNames, "gmail_read_thread")
 	a.Contains(toolNames, "gmail_search_messages")
 	a.Contains(toolNames, "gmail_send_message")
-	a.Contains(toolNames, "granola_get_meeting_transcript")
-	a.Contains(toolNames, "granola_get_meetings")
-	a.Contains(toolNames, "granola_list_meetings")
-	a.Contains(toolNames, "granola_query_meetings")
-	a.Contains(toolNames, "notion_append_content")
-	a.Contains(toolNames, "notion_create_page")
-	a.Contains(toolNames, "notion_get_database")
-	a.Contains(toolNames, "notion_get_page")
-	a.Contains(toolNames, "notion_get_page_content")
-	a.Contains(toolNames, "notion_query_database")
-	a.Contains(toolNames, "notion_search")
+	// granola and notion tools are registered dynamically from upstream MCP
+	// and won't appear without upstreamTools passed to NewServer
 	a.Contains(toolNames, "slack_create_canvas")
 	a.Contains(toolNames, "slack_read_canvas")
 	a.Contains(toolNames, "slack_read_channel")
@@ -112,7 +103,7 @@ func TestGmailToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -136,7 +127,7 @@ func TestGCalToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -160,7 +151,7 @@ func TestGDriveToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -184,7 +175,10 @@ func TestGranolaToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil)
+	upstreamTools := []UpstreamTool{
+		{Service: "granola", Name: "list_meetings", Description: "List meetings", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+	}
+	server := NewServer("https://example.com", stubLookup(nil), nil, upstreamTools)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -196,8 +190,7 @@ func TestGranolaToolsRequireAuth(t *testing.T) {
 	defer session.Close()
 
 	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "granola_list_meetings",
-		Arguments: map[string]any{},
+		Name: "list_meetings",
 	})
 	a.NoError(err)
 	a.True(res.IsError)
@@ -208,7 +201,10 @@ func TestNotionToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil)
+	upstreamTools := []UpstreamTool{
+		{Service: "notion", Name: "notion-search", Description: "Search Notion", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+	}
+	server := NewServer("https://example.com", stubLookup(nil), nil, upstreamTools)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -220,8 +216,7 @@ func TestNotionToolsRequireAuth(t *testing.T) {
 	defer session.Close()
 
 	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
-		Name:      "notion_search",
-		Arguments: map[string]any{},
+		Name: "notion-search",
 	})
 	a.NoError(err)
 	a.True(res.IsError)
@@ -232,7 +227,7 @@ func TestSlackToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)

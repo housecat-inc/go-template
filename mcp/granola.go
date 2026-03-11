@@ -20,17 +20,7 @@ type GranolaClient struct {
 
 var mcpRequestID atomic.Int64
 
-func (c *GranolaClient) CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error) {
-	reqID := mcpRequestID.Add(1)
-	payload := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      reqID,
-		"method":  "tools/call",
-		"params": map[string]any{
-			"name":      toolName,
-			"arguments": arguments,
-		},
-	}
+func (c *GranolaClient) postRPC(ctx context.Context, payload any) (json.RawMessage, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal request")
@@ -70,14 +60,8 @@ func (c *GranolaClient) CallTool(ctx context.Context, toolName string, arguments
 	}
 
 	var rpcResp struct {
-		Result struct {
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-			IsError bool `json:"isError"`
-		} `json:"result"`
-		Error *struct {
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
@@ -90,9 +74,52 @@ func (c *GranolaClient) CallTool(ctx context.Context, toolName string, arguments
 		return nil, errors.Newf("granola mcp error: %s", rpcResp.Error.Message)
 	}
 
-	if rpcResp.Result.IsError {
+	return rpcResp.Result, nil
+}
+
+func (c *GranolaClient) ListTools(ctx context.Context) (json.RawMessage, error) {
+	reqID := mcpRequestID.Add(1)
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      reqID,
+		"method":  "tools/list",
+		"params":  map[string]any{},
+	}
+	return c.postRPC(ctx, payload)
+}
+
+func (c *GranolaClient) CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error) {
+	reqID := mcpRequestID.Add(1)
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      reqID,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      toolName,
+			"arguments": arguments,
+		},
+	}
+
+	result, err := c.postRPC(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	// result is {"content": [...], "isError": bool}
+	var toolResult struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if err := json.Unmarshal(result, &toolResult); err != nil {
+		return nil, errors.Wrap(err, "decode tool result")
+	}
+
+	if toolResult.IsError {
 		var texts []string
-		for _, c := range rpcResp.Result.Content {
+		for _, c := range toolResult.Content {
 			if c.Type == "text" {
 				texts = append(texts, c.Text)
 			}
@@ -101,12 +128,11 @@ func (c *GranolaClient) CallTool(ctx context.Context, toolName string, arguments
 	}
 
 	var texts []string
-	for _, c := range rpcResp.Result.Content {
+	for _, c := range toolResult.Content {
 		if c.Type == "text" {
 			texts = append(texts, c.Text)
 		}
 	}
 
-	result := strings.Join(texts, "\n")
-	return json.RawMessage(result), nil
+	return json.RawMessage(strings.Join(texts, "\n")), nil
 }

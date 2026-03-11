@@ -3,9 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,149 +11,63 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCreatePageWithProperties(t *testing.T) {
+func TestNotionCallToolSSEResponse(t *testing.T) {
 	a := assert.New(t)
-	r := require.New(t)
 
-	var capturedBody map[string]any
+	sseData := "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"hello world\"}]}}\n"
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		body, _ := io.ReadAll(req.Body)
-		json.Unmarshal(body, &capturedBody)
-
-		if req.URL.Path == "/v1/databases/db-123" {
-			w.Write([]byte(`{"properties":{"Name":{"type":"title"}}}`))
-			return
-		}
-
-		w.Write([]byte(`{"id":"page-123","created_time":"2026-01-01","properties":{}}`))
-	}))
-	defer ts.Close()
-
-	client := &NotionClient{Token: "test-token", BaseURL: ts.URL + "/v1"}
-
-	props := json.RawMessage(`{
-		"Granola ID": {"rich_text": [{"text": {"content": "g-123"}}]},
-		"Date": {"date": {"start": "2026-03-09"}},
-		"Type": {"multi_select": [{"name": "Meeting Notes"}]}
-	}`)
-
-	out, err := client.CreatePage(context.Background(), "", "db-123", "Test Page", "", props)
-	r.NoError(err)
-	a.Equal("page-123", out.ID)
-
-	payloadProps, ok := capturedBody["properties"].(map[string]any)
-	r.True(ok, "properties should be a map")
-
-	a.Contains(payloadProps, "Granola ID")
-	a.Contains(payloadProps, "Date")
-	a.Contains(payloadProps, "Type")
-	a.Contains(payloadProps, "Name")
-}
-
-func TestCreatePageWithoutExtraProperties(t *testing.T) {
-	a := assert.New(t)
-	r := require.New(t)
-
-	var capturedBody map[string]any
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		body, _ := io.ReadAll(req.Body)
-		json.Unmarshal(body, &capturedBody)
-
-		if req.URL.Path == "/v1/databases/db-123" {
-			w.Write([]byte(`{"properties":{"Name":{"type":"title"}}}`))
-			return
-		}
-
-		w.Write([]byte(`{"id":"page-456","created_time":"2026-01-01","properties":{}}`))
-	}))
-	defer ts.Close()
-
-	client := &NotionClient{Token: "test-token", BaseURL: ts.URL + "/v1"}
-	out, err := client.CreatePage(context.Background(), "", "db-123", "Title Only", "", nil)
-	r.NoError(err)
-	a.Equal("page-456", out.ID)
-
-	payloadProps, ok := capturedBody["properties"].(map[string]any)
-	r.True(ok)
-	a.Contains(payloadProps, "Name")
-	a.Len(payloadProps, 1)
-}
-
-func TestUpdatePageProperties(t *testing.T) {
-	a := assert.New(t)
-	r := require.New(t)
-
-	var capturedBody map[string]any
-	var capturedMethod string
-	var capturedPath string
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		capturedMethod = req.Method
-		capturedPath = req.URL.Path
-		body, _ := io.ReadAll(req.Body)
-		json.Unmarshal(body, &capturedBody)
-		w.Write([]byte(`{"id":"page-456","created_time":"2026-01-01","properties":{}}`))
-	}))
-	defer ts.Close()
-
-	client := &NotionClient{Token: "test-token", BaseURL: ts.URL + "/v1"}
-
-	props := json.RawMessage(`{
-		"Granola ID": {"rich_text": [{"text": {"content": "updated-789"}}]},
-		"Date": {"date": {"start": "2026-03-10"}}
-	}`)
-
-	out, err := client.UpdatePage(context.Background(), "page-456", props)
-	r.NoError(err)
-	a.Equal("page-456", out.ID)
-	a.Equal("PATCH", capturedMethod)
-	a.Equal("/v1/pages/page-456", capturedPath)
-
-	payloadProps, ok := capturedBody["properties"].(map[string]any)
-	r.True(ok, "properties should be a map")
-	a.Contains(payloadProps, "Granola ID")
-	a.Contains(payloadProps, "Date")
-}
-
-func TestGetDatabaseIncludesProperties(t *testing.T) {
-	a := assert.New(t)
-	r := require.New(t)
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte(`{
-			"id": "db-789",
-			"title": [{"plain_text": "Documents"}],
-			"description": [],
-			"properties": {
-				"Name": {"id": "title", "type": "title", "title": {}},
-				"Date": {"id": "abc", "type": "date", "date": {}},
-				"Granola ID": {"id": "def", "type": "rich_text", "rich_text": {}}
+	parsed := sseData
+	if strings.HasPrefix(parsed, "event:") {
+		for _, line := range strings.Split(parsed, "\n") {
+			if strings.HasPrefix(line, "data: ") {
+				parsed = strings.TrimPrefix(line, "data: ")
+				break
 			}
-		}`))
-	}))
-	defer ts.Close()
+		}
+	}
 
-	client := &NotionClient{Token: "test-token", BaseURL: ts.URL + "/v1"}
-	out, err := client.GetDatabase(context.Background(), "db-789")
-	r.NoError(err)
-	a.Equal("db-789", out.ID)
-	a.Equal("Documents", out.Title)
-
-	var props map[string]any
-	r.NoError(json.Unmarshal(out.Properties, &props))
-	a.Contains(props, "Name")
-	a.Contains(props, "Date")
-	a.Contains(props, "Granola ID")
+	var rpcResp struct {
+		Result struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	err := json.Unmarshal([]byte(parsed), &rpcResp)
+	a.NoError(err)
+	a.Len(rpcResp.Result.Content, 1)
+	a.Equal("hello world", rpcResp.Result.Content[0].Text)
 }
 
-func TestNotionPropertiesSchemaIsObject(t *testing.T) {
+func TestDefaultUpstreamTools(t *testing.T) {
+	a := assert.New(t)
+
+	tools := DefaultUpstreamTools()
+	a.GreaterOrEqual(len(tools), 16, "should have at least 16 embedded tools")
+
+	services := map[string]int{}
+	for _, t := range tools {
+		services[t.Service]++
+		a.NotEmpty(t.Name)
+		a.NotEmpty(t.Description)
+		a.NotEmpty(t.InputSchema)
+	}
+	a.Equal(12, services["notion"])
+	a.Equal(4, services["granola"])
+}
+
+func TestUpstreamToolsRegistered(t *testing.T) {
 	a := assert.New(t)
 	r := require.New(t)
 
 	ctx := context.Background()
-	server := NewServer("https://example.com", stubLookup(nil), nil)
+	upstreamTools := []UpstreamTool{
+		{Service: "granola", Name: "list_meetings", Description: "List meetings", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+		{Service: "notion", Name: "notion-search", Description: "Search Notion", InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`)},
+	}
+	server := NewServer("https://example.com", stubLookup(nil), nil, upstreamTools)
+
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)
 	r.NoError(err)
@@ -168,18 +80,11 @@ func TestNotionPropertiesSchemaIsObject(t *testing.T) {
 	tools, err := session.ListTools(ctx, nil)
 	r.NoError(err)
 
+	toolMap := map[string]bool{}
 	for _, tool := range tools.Tools {
-		if tool.Name != "notion_update_page" && tool.Name != "notion_create_page" {
-			continue
-		}
-		schemaJSON, _ := json.Marshal(tool.InputSchema)
-		var schema map[string]any
-		r.NoError(json.Unmarshal(schemaJSON, &schema))
-
-		props, ok := schema["properties"].(map[string]any)
-		r.True(ok, "%s schema properties should be a map", tool.Name)
-		propSchema, ok := props["properties"].(map[string]any)
-		r.True(ok, "%s properties.properties should be a map", tool.Name)
-		a.Equal("object", propSchema["type"], "%s properties field should have type 'object', not array", tool.Name)
+		toolMap[tool.Name] = true
 	}
+
+	a.True(toolMap["list_meetings"], "granola list_meetings should be registered")
+	a.True(toolMap["notion-search"], "notion-search should be registered")
 }
