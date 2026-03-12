@@ -51,9 +51,10 @@ func (c *GranolaClient) postRPC(ctx context.Context, payload any) (json.RawMessa
 
 	parsed := string(data)
 	if strings.HasPrefix(parsed, "event:") {
-		for _, line := range strings.Split(parsed, "\n") {
-			if strings.HasPrefix(line, "data: ") {
-				parsed = strings.TrimPrefix(line, "data: ")
+		lines := strings.Split(parsed, "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if strings.HasPrefix(lines[i], "data: ") {
+				parsed = strings.TrimPrefix(lines[i], "data: ")
 				break
 			}
 		}

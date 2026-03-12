@@ -3,8 +3,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 
 	"github.com/cockroachdb/errors"
+	"github.com/google/uuid"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -210,6 +212,7 @@ func textResult(v any) (*gomcp.CallToolResult, error) {
 }
 
 func errResult(msg string) (*gomcp.CallToolResult, any, error) {
+	slog.Warn("mcp tool error", "error", msg)
 	return &gomcp.CallToolResult{
 		Content: []gomcp.Content{
 			&gomcp.TextContent{Text: msg},
@@ -226,11 +229,77 @@ type UpstreamTool struct {
 	InputSchema json.RawMessage // exact upstream JSON schema
 }
 
+// requestIDMiddleware is server-side middleware that assigns a request ID to
+// every tools/call request. If the client sends a "request_id" in _meta, it is
+// preserved; otherwise the server generates a UUIDv4. The request ID is echoed
+// back on the result's _meta and included in structured log output. Empty tool
+// results are given a fallback message so every call produces visible output.
+func requestIDMiddleware() gomcp.Middleware {
+	return func(next gomcp.MethodHandler) gomcp.MethodHandler {
+		return func(ctx context.Context, method string, req gomcp.Request) (gomcp.Result, error) {
+			if method != "tools/call" {
+				return next(ctx, method, req)
+			}
+
+			// Extract or generate request ID.
+			var requestID string
+			if meta := req.GetParams().GetMeta(); meta != nil {
+				if rid, ok := meta["request_id"].(string); ok && rid != "" {
+					requestID = rid
+				}
+			}
+			if requestID == "" {
+				requestID = uuid.NewString()
+			}
+
+			// Extract tool name for logging.
+			var toolName string
+			if params, ok := req.GetParams().(*gomcp.CallToolParamsRaw); ok {
+				toolName = params.Name
+			}
+
+			slog.Info("tool call start", "request_id", requestID, "tool", toolName)
+
+			result, err := next(ctx, method, req)
+
+			// Stamp request ID and ensure non-empty content on CallToolResult.
+			if ctr, ok := result.(*gomcp.CallToolResult); ok && ctr != nil {
+				meta := ctr.GetMeta()
+				if meta == nil {
+					meta = map[string]any{}
+				}
+				meta["request_id"] = requestID
+				ctr.SetMeta(meta)
+
+				if len(ctr.Content) == 0 {
+					ctr.Content = []gomcp.Content{
+						&gomcp.TextContent{Text: "completed successfully (no output)"},
+					}
+				}
+			}
+
+			if err != nil {
+				slog.Warn("tool call error", "request_id", requestID, "tool", toolName, "error", err)
+			} else {
+				isErr := false
+				if ctr, ok := result.(*gomcp.CallToolResult); ok && ctr != nil {
+					isErr = ctr.IsError
+				}
+				slog.Info("tool call done", "request_id", requestID, "tool", toolName, "is_error", isErr)
+			}
+
+			return result, err
+		}
+	}
+}
+
 func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup, upstreamTools []UpstreamTool) *gomcp.Server {
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "housecat",
 		Version: "0.1.0",
 	}, nil)
+
+	server.AddReceivingMiddleware(requestIDMiddleware())
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "connections",
