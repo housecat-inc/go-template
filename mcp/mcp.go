@@ -624,16 +624,16 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Name:        "gmail_search_messages",
 		Description: "Search Gmail messages. Uses Gmail search syntax (e.g. 'from:user@example.com subject:hello is:unread'). Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		IncludeSpamTrash bool   `json:"includeSpamTrash,omitempty" jsonschema:"Include spam and trash in results (default false)"`
-		MaxResults       int    `json:"maxResults,omitempty" jsonschema:"Max messages to return (default 20, max 500)"`
-		PageToken        string `json:"pageToken,omitempty" jsonschema:"Pagination token from previous response"`
-		Q                string `json:"q,omitempty" jsonschema:"Gmail search query"`
+		IncludeSpamTrash bool   `json:"include_spam_trash,omitempty" jsonschema:"Include spam and trash in results (default false)"`
+		MaxResults       int    `json:"max_results,omitempty" jsonschema:"Max messages to return (default 20, max 500)"`
+		PageToken        string `json:"page_token,omitempty" jsonschema:"Pagination token from previous response"`
+		Query            string `json:"query,omitempty" jsonschema:"Gmail search query (e.g. 'from:user@example.com subject:hello is:unread')"`
 	}) (*gomcp.CallToolResult, any, error) {
 		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.SearchMessages(ctx, input.Q, input.MaxResults, input.PageToken, input.IncludeSpamTrash)
+		out, err := client.SearchMessages(ctx, input.Query, input.MaxResults, input.PageToken, input.IncludeSpamTrash)
 		if err != nil {
 			return errResult(err.Error())
 		}
@@ -645,7 +645,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Name:        "gmail_read_message",
 		Description: "Read the full content of a Gmail message by ID. Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		MessageID string `json:"messageId" jsonschema:"Gmail message ID"`
+		MessageID string `json:"message_id" jsonschema:"Gmail message ID"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.MessageID == "" {
 			return errResult("messageId is required")
@@ -666,7 +666,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Name:        "gmail_read_thread",
 		Description: "Get all messages in a Gmail thread by thread ID. Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		ThreadID string `json:"threadId" jsonschema:"Gmail thread ID"`
+		ThreadID string `json:"thread_id" jsonschema:"Gmail thread ID"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.ThreadID == "" {
 			return errResult("threadId is required")
@@ -687,8 +687,8 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Name:        "gmail_list_drafts",
 		Description: "List Gmail drafts. Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		MaxResults int    `json:"maxResults,omitempty" jsonschema:"Max drafts to return (default 20)"`
-		PageToken  string `json:"pageToken,omitempty" jsonschema:"Pagination token from previous response"`
+		MaxResults int    `json:"max_results,omitempty" jsonschema:"Max drafts to return (default 20)"`
+		PageToken  string `json:"page_token,omitempty" jsonschema:"Pagination token from previous response"`
 	}) (*gomcp.CallToolResult, any, error) {
 		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
 		if err != nil {
@@ -709,9 +709,9 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Bcc         string `json:"bcc,omitempty" jsonschema:"BCC recipient email address"`
 		Body        string `json:"body" jsonschema:"Email body text"`
 		Cc          string `json:"cc,omitempty" jsonschema:"CC recipient email address"`
-		ContentType string `json:"contentType,omitempty" jsonschema:"MIME type for body (default text/plain)"`
+		ContentType string `json:"content_type,omitempty" jsonschema:"MIME type for body (default text/plain)"`
 		Subject     string `json:"subject,omitempty" jsonschema:"Email subject line (required unless threadId is provided)"`
-		ThreadID    string `json:"threadId,omitempty" jsonschema:"Thread ID to associate draft with"`
+		ThreadID    string `json:"thread_id,omitempty" jsonschema:"Thread ID to associate draft with"`
 		To          string `json:"to" jsonschema:"Recipient email address"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.To == "" {
@@ -766,10 +766,10 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Bcc         string `json:"bcc,omitempty" jsonschema:"BCC recipients, comma-separated"`
 		Body        string `json:"body,omitempty" jsonschema:"Email body content (required without draftId)"`
 		Cc          string `json:"cc,omitempty" jsonschema:"CC recipients, comma-separated"`
-		ContentType string `json:"contentType,omitempty" jsonschema:"text/plain or text/html (default text/plain)"`
-		DraftID     string `json:"draftId,omitempty" jsonschema:"Draft ID to send (provide this OR to+body)"`
+		ContentType string `json:"content_type,omitempty" jsonschema:"text/plain or text/html (default text/plain)"`
+		DraftID     string `json:"draft_id,omitempty" jsonschema:"Draft ID to send (provide this OR to+body)"`
 		Subject     string `json:"subject,omitempty" jsonschema:"Subject line (required without draftId unless threadId provided)"`
-		ThreadID    string `json:"threadId,omitempty" jsonschema:"Thread ID to send as a reply"`
+		ThreadID    string `json:"thread_id,omitempty" jsonschema:"Thread ID to send as a reply"`
 		To          string `json:"to,omitempty" jsonschema:"Recipient(s), comma-separated (required without draftId)"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.DraftID != "" {
@@ -885,7 +885,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Name:        "slack_read_channel",
 		Description: "Read messages from a Slack channel, group, or IM. Requires Slack read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		ChannelID      string `json:"channel_id" jsonschema:"Channel/group/IM ID"`
+		ChannelID      string `json:"channel" jsonschema:"Channel/group/IM ID"`
 		Cursor         string `json:"cursor,omitempty" jsonschema:"Pagination cursor"`
 		Latest         string `json:"latest,omitempty" jsonschema:"End of time range (timestamp)"`
 		Limit          int    `json:"limit,omitempty" jsonschema:"Messages to return, 1-100 (default 100)"`
@@ -893,7 +893,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		ResponseFormat string `json:"response_format,omitempty" jsonschema:"detailed or concise (default detailed)"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.ChannelID == "" {
-			return errResult("channel_id is required")
+			return errResult("channel is required")
 		}
 		client, err := slackClientFromRequest(ctx, req, lookup, "read")
 		if err != nil {
@@ -918,7 +918,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Name:        "slack_read_thread",
 		Description: "Read replies in a Slack thread. Requires Slack read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		ChannelID      string `json:"channel_id" jsonschema:"Channel ID"`
+		ChannelID      string `json:"channel" jsonschema:"Channel ID"`
 		Cursor         string `json:"cursor,omitempty" jsonschema:"Pagination cursor"`
 		Latest         string `json:"latest,omitempty" jsonschema:"End of time range"`
 		Limit          int    `json:"limit,omitempty" jsonschema:"Messages to return, 1-1000 (default 100)"`
@@ -927,7 +927,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		ResponseFormat string `json:"response_format,omitempty" jsonschema:"detailed or concise (default detailed)"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.ChannelID == "" {
-			return errResult("channel_id is required")
+			return errResult("channel is required")
 		}
 		if input.MessageTS == "" {
 			return errResult("message_ts is required")
@@ -1161,14 +1161,14 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Name:        "slack_send_message",
 		Description: "Send a message to a Slack channel or DM. Supports thread replies and broadcast. Requires Slack write connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		ChannelID      string `json:"channel_id" jsonschema:"Channel or user ID (for DMs)"`
+		ChannelID      string `json:"channel" jsonschema:"Channel or user ID (for DMs)"`
 		DraftID        string `json:"draft_id,omitempty" jsonschema:"Draft ID to delete after sending"`
 		Message        string `json:"message" jsonschema:"Markdown-formatted message (max 5000 chars)"`
 		ReplyBroadcast bool   `json:"reply_broadcast,omitempty" jsonschema:"Also post reply to channel"`
 		ThreadTS       string `json:"thread_ts,omitempty" jsonschema:"Parent message timestamp (for thread replies)"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.ChannelID == "" {
-			return errResult("channel_id is required")
+			return errResult("channel is required")
 		}
 		if input.Message == "" {
 			return errResult("message is required")
@@ -1195,12 +1195,12 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Name:        "slack_send_message_draft",
 		Description: "Create a draft message as a DM to yourself for review. Returns a draft_id that can be passed to slack_send_message to clean up after sending. Requires Slack draft connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		ChannelID string `json:"channel_id" jsonschema:"Channel to create draft for"`
+		ChannelID string `json:"channel" jsonschema:"Channel to create draft for"`
 		Message   string `json:"message" jsonschema:"Message content (Slack mrkdwn)"`
 		ThreadTS  string `json:"thread_ts,omitempty" jsonschema:"Parent message timestamp (for thread reply draft)"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.ChannelID == "" {
-			return errResult("channel_id is required")
+			return errResult("channel is required")
 		}
 		if input.Message == "" {
 			return errResult("message is required")
@@ -1225,14 +1225,14 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Name:        "slack_schedule_message",
 		Description: "Schedule a message for future delivery. Requires Slack write connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		ChannelID      string `json:"channel_id" jsonschema:"Target channel"`
+		ChannelID      string `json:"channel" jsonschema:"Target channel"`
 		Message        string `json:"message" jsonschema:"Message content"`
 		PostAt         int    `json:"post_at" jsonschema:"Unix timestamp (min 2 min future, max 120 days)"`
 		ReplyBroadcast bool   `json:"reply_broadcast,omitempty" jsonschema:"Broadcast thread reply to channel"`
 		ThreadTS       string `json:"thread_ts,omitempty" jsonschema:"Parent message timestamp (for thread reply)"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.ChannelID == "" {
-			return errResult("channel_id is required")
+			return errResult("channel is required")
 		}
 		if input.Message == "" {
 			return errResult("message is required")

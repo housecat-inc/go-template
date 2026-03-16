@@ -240,7 +240,7 @@ func TestSlackToolsRequireAuth(t *testing.T) {
 
 	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
 		Name:      "slack_read_channel",
-		Arguments: map[string]any{"channel_id": "C0123"},
+		Arguments: map[string]any{"channel": "C0123"},
 	})
 	a.NoError(err)
 	a.True(res.IsError)
