@@ -44,6 +44,7 @@ type ServiceOAuthConfig struct {
 type Server struct {
 	DB                *sql.DB
 	ExeDev            *exedev.Client
+	ExeDevVMName      string
 	GitProxy *gh.Proxy
 	Hostname          string
 	OAuth             OAuthConfig
@@ -80,6 +81,10 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig, exedevKeyPath string) (*
 			slog.Warn("exe.dev client disabled", "error", err)
 		} else {
 			srv.ExeDev = client
+			// Derive VM name from hostname (e.g. "zappy-cat.exe.xyz" → "zappy-cat").
+			if i := strings.Index(hostname, "."); i > 0 {
+				srv.ExeDevVMName = hostname[:i]
+			}
 		}
 	}
 	return srv, nil

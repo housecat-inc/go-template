@@ -270,5 +270,5 @@ func (s *Server) HandleGranolaCallback(c echo.Context) error {
 	})
 
 	slog.Info("granola connected", "user", userEmail)
-	return c.Redirect(http.StatusFound, "/connect/granola")
+	return c.Redirect(http.StatusFound, "/connect/granola?connected=1")
 }

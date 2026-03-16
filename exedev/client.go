@@ -123,6 +123,18 @@ func (c *Client) ShareShow(ctx context.Context, vmName string) (ShareInfo, error
 	return info, nil
 }
 
+// ShareSetPublic makes a VM's proxy publicly accessible.
+func (c *Client) ShareSetPublic(ctx context.Context, vmName string) error {
+	_, err := c.ExecWithPerm(ctx, "share set-public "+vmName, "share set-public")
+	return err
+}
+
+// ShareSetPrivate makes a VM's proxy private (only VM users can access).
+func (c *Client) ShareSetPrivate(ctx context.Context, vmName string) error {
+	_, err := c.ExecWithPerm(ctx, "share set-private "+vmName, "share set-private")
+	return err
+}
+
 // BrowserLink returns a magic link that grants access to the exe.dev dashboard.
 func (c *Client) BrowserLink(ctx context.Context) (string, error) {
 	out, err := c.Exec(ctx, "browser --json")

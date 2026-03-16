@@ -3,6 +3,7 @@ package srv
 import (
 	stderrors "errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -226,6 +227,25 @@ func (s *Server) HandleClientsUpdate(c echo.Context) error {
 		ObjectType: "client",
 		Metadata:   &userEmail,
 	})
+
+	// If access is restricted to just housecat.com with no extra emails, keep
+	// the VM private. Otherwise make it public so external users can reach it.
+	if s.ExeDev != nil {
+		isDefault := (allowedDomain == "housecat.com" || allowedDomain == "") && allowedEmails == ""
+		if isDefault {
+			if err := s.ExeDev.ShareSetPrivate(ctx, s.ExeDevVMName); err != nil {
+				slog.Warn("exe.dev share set-private failed", "error", err)
+			} else {
+				slog.Info("exe.dev share set-private", "vm", s.ExeDevVMName)
+			}
+		} else {
+			if err := s.ExeDev.ShareSetPublic(ctx, s.ExeDevVMName); err != nil {
+				slog.Warn("exe.dev share set-public failed", "error", err)
+			} else {
+				slog.Info("exe.dev share set-public", "vm", s.ExeDevVMName)
+			}
+		}
+	}
 
 	return c.Redirect(http.StatusFound, fmt.Sprintf("/admin/clients/%d", id))
 }

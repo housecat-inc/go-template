@@ -2,6 +2,7 @@ package srv
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/labstack/echo/v4"
 
@@ -133,10 +134,31 @@ func (s *Server) HandleConnect(c echo.Context) error {
 
 	connectedLevels := s.connectedLevelsForUser(ctx, userID)
 
+	justConnected := c.QueryParam("connected") == "1"
+	externalFlow := false
+	if justConnected {
+		if cookie, err := r.Cookie("connect_external"); err == nil && cookie.Value == "1" {
+			externalFlow = true
+			// Clear the cookie.
+			secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+			c.SetCookie(&http.Cookie{
+				Name:     "connect_external",
+				Value:    "",
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   secure,
+				SameSite: http.SameSiteLaxMode,
+				MaxAge:   -1,
+			})
+		}
+	}
+
 	data := pages.ConnectData{
-		Integration: buildIntegration(svc, connectedLevels[name]),
-		LogoutURL:   logoutURL,
-		UserEmail:   userEmail,
+		ExternalFlow:  externalFlow,
+		Integration:   buildIntegration(svc, connectedLevels[name]),
+		JustConnected: justConnected,
+		LogoutURL:     logoutURL,
+		UserEmail:     userEmail,
 	}
 	return pages.Connect(data, isAdminWithProvider(userEmail, provider)).Render(ctx, c.Response())
 }

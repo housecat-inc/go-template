@@ -84,7 +84,7 @@ func TestConnections(t *testing.T) {
 	text := res.Content[0].(*gomcp.TextContent).Text
 	var resp ConnectionsResponse
 	a.NoError(json.Unmarshal([]byte(text), &resp))
-	a.Len(resp.Services, 6)
+	a.Len(resp.Services, 8)
 	a.Nil(resp.User)
 
 	ids := make([]string, len(resp.Services))
@@ -96,7 +96,7 @@ func TestConnections(t *testing.T) {
 			a.Equal("https://example.com/connect/"+s.ID+"/enable/"+conn.Level, conn.URL)
 		}
 	}
-	a.Equal([]string{"gcal", "gdrive", "gmail", "granola", "notion", "slack"}, ids)
+	a.Equal([]string{"gcal", "gdrive", "gdocs", "gmail", "gsheets", "granola", "notion", "slack"}, ids)
 }
 
 func TestGmailToolsRequireAuth(t *testing.T) {

@@ -18,9 +18,11 @@ import (
 )
 
 var googleServices = map[string]bool{
-	"gcal":   true,
-	"gdrive": true,
-	"gmail":  true,
+	"gcal":    true,
+	"gdocs":   true,
+	"gdrive":  true,
+	"gmail":   true,
+	"gsheets": true,
 }
 
 func (s *Server) oauthConfigForService(r *http.Request, service, level string) (*oauth2.Config, error) {
@@ -125,6 +127,31 @@ func (s *Server) HandleConnectEnable(c echo.Context) error {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   600,
 	})
+
+	// Track if the enable was initiated from an external client app so we can
+	// show a "you can close this window" message after the OAuth flow completes.
+	// External if: ?external=1, no referrer (direct navigation / external link),
+	// or referrer from a different host.
+	external := c.QueryParam("external") == "1"
+	if !external {
+		referer := r.Header.Get("Referer")
+		if referer == "" {
+			external = true
+		} else if refURL, err := url.Parse(referer); err == nil && refURL.Host != "" && refURL.Host != r.Host {
+			external = true
+		}
+	}
+	if external {
+		c.SetCookie(&http.Cookie{
+			Name:     "connect_external",
+			Value:    "1",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   600,
+		})
+	}
 
 	opts := []oauth2.AuthCodeOption{oauth2.AccessTypeOffline}
 	if googleServices[service] {
@@ -250,7 +277,7 @@ func (s *Server) HandleConnectCallback(c echo.Context) error {
 	})
 
 	slog.Info("oauth connected", "service", service, "level", level, "user", userEmail)
-	return c.Redirect(http.StatusFound, "/connect/"+service)
+	return c.Redirect(http.StatusFound, "/connect/"+service+"?connected=1")
 }
 
 func (s *Server) slackTokenExchange(ctx context.Context, cfg *oauth2.Config, code string) (string, error) {

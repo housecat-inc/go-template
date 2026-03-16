@@ -257,5 +257,5 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 	})
 
 	slog.Info("notion connected", "user", userEmail)
-	return c.Redirect(http.StatusFound, "/connect/notion")
+	return c.Redirect(http.StatusFound, "/connect/notion?connected=1")
 }

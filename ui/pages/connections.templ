@@ -36,10 +36,14 @@ func integrationIcon(name string, size int) templ.Component {
 	switch name {
 	case "gcal":
 		return icon.Calendar(icon.Props{Size: size})
+	case "gdocs":
+		return icon.FileText(icon.Props{Size: size})
 	case "gdrive":
 		return icon.HardDrive(icon.Props{Size: size})
 	case "gmail":
 		return icon.Mail(icon.Props{Size: size})
+	case "gsheets":
+		return icon.Sheet(icon.Props{Size: size})
 	case "granola":
 		return icon.Notebook(icon.Props{Size: size})
 	case "notion":
@@ -90,28 +94,35 @@ templ integrationCard(svc Integration) {
 				<p class="text-sm text-muted-foreground mb-4 line-clamp-2 min-h-[2.5rem]">{ svc.Description }</p>
 				<ul class="space-y-2 mb-4">
 					for _, lvl := range svc.Levels {
-						<li class="flex items-center gap-2 text-sm">
-							if lvl.Connected {
+						if lvl.Connected {
+							<li class="flex items-center gap-2 text-sm">
 								@icon.CircleCheck(icon.Props{Size: 14, Class: "text-primary flex-shrink-0"})
-							} else {
-								@icon.Circle(icon.Props{Size: 14, Class: "text-muted-foreground/40 flex-shrink-0"})
-							}
-							<span class="flex-1 text-muted-foreground">{ lvl.DisplayName }</span>
-							@badge.Badge(badge.Props{Variant: levelBadgeVariant(lvl.Connected), Class: "text-[10px] px-1.5 py-0"}) {
-								{ lvl.Level }
-							}
-						</li>
+								<span class="flex-1 text-muted-foreground">{ lvl.DisplayName }</span>
+								@badge.Badge(badge.Props{Variant: levelBadgeVariant(true), Class: "text-[10px] px-1.5 py-0"}) {
+									{ lvl.Level }
+								}
+							</li>
+						} else {
+							<li>
+								<a href={ templ.SafeURL(fmt.Sprintf("/connect/%s/enable/%s", svc.Name, lvl.Level)) } class="flex items-center gap-2 text-sm">
+									@icon.Circle(icon.Props{Size: 14, Class: "text-muted-foreground/40 flex-shrink-0"})
+									<span class="flex-1 text-muted-foreground">{ lvl.DisplayName }</span>
+									@badge.Badge(badge.Props{Variant: levelBadgeVariant(false), Class: "text-[10px] px-1.5 py-0"}) {
+										{ lvl.Level }
+									}
+								</a>
+							</li>
+						}
 					}
 				</ul>
 			</div>
 			<div class="flex gap-2 mt-auto pt-4">
 				if svc.Connected {
 					@button.Button(button.Props{
-						Variant: button.VariantOutline,
+						Variant: button.VariantSecondary,
 						Class:   "w-full",
 						Href:    fmt.Sprintf("/connect/%s", svc.Name),
 					}) {
-						@icon.Settings(icon.Props{Size: 16})
 						Configure
 					}
 				} else {
@@ -119,7 +130,6 @@ templ integrationCard(svc Integration) {
 						Class: "w-full",
 						Href:  fmt.Sprintf("/connect/%s", svc.Name),
 					}) {
-						@integrationIcon(svc.Name, 16)
 						Connect
 					}
 				}
