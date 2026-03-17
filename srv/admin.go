@@ -124,8 +124,26 @@ func (s *Server) HandleAdminVMs(c echo.Context) error {
 	return component.Render(r.Context(), c.Response())
 }
 
-func (s *Server) HandleAdminBrowserLink(c echo.Context) error {
+// HandleAdminOpenVM redirects to the target VM URL if the user is already
+// authenticated via exe.dev. Otherwise it redirects to a magic link so
+// they get logged into exe.dev first. The next click will go direct.
+func (s *Server) HandleAdminOpenVM(c echo.Context) error {
 	ctx := c.Request().Context()
+	target := c.QueryParam("url")
+	if target == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "url parameter required")
+	}
+	// Prevent open redirect: only allow *.exe.xyz targets.
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Scheme != "https" || !strings.HasSuffix(parsed.Hostname(), ".exe.xyz") {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid target URL")
+	}
+
+	// After a magic link login, we set a cookie to remember the user has
+	// exe.dev access. If the cookie is present, go straight to the target.
+	if _, err := c.Cookie("exedev_login"); err == nil {
+		return c.Redirect(http.StatusFound, target)
+	}
 
 	if s.ExeDev == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "exe.dev client not configured")
@@ -134,21 +152,17 @@ func (s *Server) HandleAdminBrowserLink(c echo.Context) error {
 	magicLink, err := s.ExeDev.BrowserLink(ctx)
 	if err != nil {
 		slog.Error("browser link", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate browser link")
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate login link")
 	}
 
-	if s.DB != nil {
-		userID := c.Get("userID").(string)
-		q := dbgen.New(s.DB)
-		_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-			ActorID:    userID,
-			ActorType:  "user",
-			Action:     "browser_link",
-			ObjectID:   "dashboard",
-			ObjectType: "vm",
-		})
-	}
-
+	c.SetCookie(&http.Cookie{
+		Name:     "exedev_login",
+		Value:    "1",
+		Path:     "/admin",
+		MaxAge:   86400, // 24h
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 	return c.Redirect(http.StatusFound, magicLink)
 }
 

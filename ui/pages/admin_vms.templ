@@ -2,6 +2,7 @@ package pages
 
 import (
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/housecat-inc/auth/exedev"
@@ -96,12 +97,6 @@ templ AdminVMs(data AdminVMsData) {
 							}
 						}
 						@instructVMDialog()
-						<form method="POST" action="/admin/browser-link" target="_blank">
-							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline}) {
-								@icon.ExternalLink(icon.Props{Size: 16})
-								<span class="ml-2">Login to exe.dev</span>
-							}
-						</form>
 					</div>
 				}
 			</div>
@@ -260,13 +255,13 @@ templ adminVMItem(vm exedev.VM, creator VMCreator) {
 					}
 				}
 				@dropdown.Content(dropdown.ContentProps{Attributes: templ.Attributes{"style": "width:12rem"}, Placement: dropdown.PlacementBottomEnd}) {
-					@dropdown.Item(dropdown.ItemProps{Href: vm.HTTPSURL, Target: "_blank"}) {
+					@dropdown.Item(dropdown.ItemProps{Href: "/admin/open?url=" + url.QueryEscape(vm.HTTPSURL), Target: "_blank"}) {
 						<span class="flex items-center gap-2">
 							@icon.ExternalLink(icon.Props{Size: 14, })
 							Open App
 						</span>
 					}
-					@dropdown.Item(dropdown.ItemProps{Href: vm.ShelleyURL, Target: "_blank"}) {
+					@dropdown.Item(dropdown.ItemProps{Href: "/admin/open?url=" + url.QueryEscape(vm.ShelleyURL), Target: "_blank"}) {
 						<span class="flex items-center gap-2">
 							@icon.Bot(icon.Props{Size: 14, })
 							Open Agent

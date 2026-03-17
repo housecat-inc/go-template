@@ -42,9 +42,8 @@ type ServiceOAuthConfig struct {
 }
 
 type Server struct {
-	DB                *sql.DB
-	ExeDev            *exedev.Client
-	ExeDevVMName      string
+	DB     *sql.DB
+	ExeDev *exedev.Client
 	GitProxy *gh.Proxy
 	Hostname          string
 	OAuth             OAuthConfig
@@ -81,10 +80,6 @@ func New(dbPath, hostname string, oauthCfg OAuthConfig, exedevKeyPath string) (*
 			slog.Warn("exe.dev client disabled", "error", err)
 		} else {
 			srv.ExeDev = client
-			// Derive VM name from hostname (e.g. "zappy-cat.exe.xyz" → "zappy-cat").
-			if i := strings.Index(hostname, "."); i > 0 {
-				srv.ExeDevVMName = hostname[:i]
-			}
 		}
 	}
 	return srv, nil
@@ -193,7 +188,7 @@ func (s *Server) Serve(addr string) error {
 	admin.GET("/vms/:name/setup", s.HandleAdminVMSetup)
 	admin.GET("/vms/:name/setup/status", s.HandleAdminVMSetupStatus)
 	admin.POST("/vms/:name/delete", s.HandleAdminDeleteVM)
-	admin.POST("/browser-link", s.HandleAdminBrowserLink)
+	admin.GET("/open", s.HandleAdminOpenVM)
 	admin.GET("/resolve-branch", s.HandleResolveBranch)
 
 	clients := admin.Group("/clients")

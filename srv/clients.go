@@ -233,16 +233,16 @@ func (s *Server) HandleClientsUpdate(c echo.Context) error {
 	if s.ExeDev != nil {
 		isDefault := (allowedDomain == "housecat.com" || allowedDomain == "") && allowedEmails == ""
 		if isDefault {
-			if err := s.ExeDev.ShareSetPrivate(ctx, s.ExeDevVMName); err != nil {
+			if err := s.ExeDev.ShareSetPrivate(ctx, name); err != nil {
 				slog.Warn("exe.dev share set-private failed", "error", err)
 			} else {
-				slog.Info("exe.dev share set-private", "vm", s.ExeDevVMName)
+				slog.Info("exe.dev share set-private", "vm", name)
 			}
 		} else {
-			if err := s.ExeDev.ShareSetPublic(ctx, s.ExeDevVMName); err != nil {
+			if err := s.ExeDev.ShareSetPublic(ctx, name); err != nil {
 				slog.Warn("exe.dev share set-public failed", "error", err)
 			} else {
-				slog.Info("exe.dev share set-public", "vm", s.ExeDevVMName)
+				slog.Info("exe.dev share set-public", "vm", name)
 			}
 		}
 	}
