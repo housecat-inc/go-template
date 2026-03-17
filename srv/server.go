@@ -188,6 +188,7 @@ func (s *Server) Serve(addr string) error {
 	admin.GET("/vms/:name/setup", s.HandleAdminVMSetup)
 	admin.GET("/vms/:name/setup/status", s.HandleAdminVMSetupStatus)
 	admin.POST("/vms/:name/delete", s.HandleAdminDeleteVM)
+	admin.POST("/vms/:name/share", s.HandleAdminToggleShare)
 	admin.GET("/open", s.HandleAdminOpenVM)
 	admin.GET("/resolve-branch", s.HandleResolveBranch)
 
@@ -413,6 +414,14 @@ func (s *Server) setUpDatabase(dbPath string) error {
 
 
 func (s *Server) issuerURL(r *http.Request) string {
+	if s.Hostname != "" {
+		scheme := "https"
+		if strings.HasPrefix(s.Hostname, "localhost") {
+			scheme = "http"
+		}
+		return scheme + "://" + s.Hostname
+	}
+
 	scheme := "https"
 	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
 		if idx := strings.IndexByte(proto, ','); idx != -1 {

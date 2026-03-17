@@ -111,8 +111,22 @@ func (s *Server) HandleAdminVMs(c echo.Context) error {
 		}
 	}
 
+	clients := map[string]pages.VMClientInfo{}
+	if s.DB != nil {
+		q := dbgen.New(s.DB)
+		if rows, err := q.ListOidcClients(ctx); err == nil {
+			for _, c := range rows {
+				clients[c.Name] = pages.VMClientInfo{
+					AllowedDomain: c.AllowedDomain,
+					AllowedEmails: c.AllowedEmails,
+				}
+			}
+		}
+	}
+
 	data := pages.AdminVMsData{
 		Activities: activities,
+		Clients:    clients,
 		Configured: s.ExeDev != nil,
 		Creators:   creators,
 		Error:      vmErr,
@@ -331,6 +345,33 @@ func (s *Server) HandleAdminDeleteVM(c echo.Context) error {
 			ObjectType: "vm",
 			Metadata:   &userEmail,
 		})
+	}
+
+	return c.Redirect(http.StatusFound, "/admin/vms")
+}
+
+func (s *Server) HandleAdminToggleShare(c echo.Context) error {
+	ctx := c.Request().Context()
+	vmName := c.Param("name")
+
+	if s.ExeDev == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "exe.dev client not configured")
+	}
+
+	action := c.FormValue("action")
+	switch action {
+	case "public":
+		if err := s.ExeDev.ShareSetPublic(ctx, vmName); err != nil {
+			return errors.Wrap(err, "share set-public")
+		}
+		slog.Info("exe.dev share set-public", "vm", vmName)
+	case "private":
+		if err := s.ExeDev.ShareSetPrivate(ctx, vmName); err != nil {
+			return errors.Wrap(err, "share set-private")
+		}
+		slog.Info("exe.dev share set-private", "vm", vmName)
+	default:
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid action")
 	}
 
 	return c.Redirect(http.StatusFound, "/admin/vms")

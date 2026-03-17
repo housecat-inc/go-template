@@ -13,6 +13,16 @@ import (
 func TestIssuerURL(t *testing.T) {
 	server := testServer(t)
 
+	t.Run("uses configured hostname", func(t *testing.T) {
+		a := assert.New(t)
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Host = "something-else.com"
+		a.Equal("https://test-hostname", server.issuerURL(req))
+	})
+
+	// Clear hostname to test request-based fallback.
+	server.Hostname = ""
+
 	t.Run("localhost returns http", func(t *testing.T) {
 		a := assert.New(t)
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
