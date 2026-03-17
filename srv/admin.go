@@ -3,6 +3,7 @@ package srv
 import (
 	"context"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -139,12 +140,6 @@ func (s *Server) HandleAdminOpenVM(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid target URL")
 	}
 
-	// After a magic link login, we set a cookie to remember the user has
-	// exe.dev access. If the cookie is present, go straight to the target.
-	if _, err := c.Cookie("exedev_login"); err == nil {
-		return c.Redirect(http.StatusFound, target)
-	}
-
 	if s.ExeDev == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "exe.dev client not configured")
 	}
@@ -155,15 +150,15 @@ func (s *Server) HandleAdminOpenVM(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate login link")
 	}
 
-	c.SetCookie(&http.Cookie{
-		Name:     "exedev_login",
-		Value:    "1",
-		Path:     "/admin",
-		MaxAge:   86400, // 24h
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
-	return c.Redirect(http.StatusFound, magicLink)
+	escapedMagicLink := html.EscapeString(magicLink)
+	escapedTarget := html.EscapeString(target)
+	return c.HTML(http.StatusOK, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Opening…</title></head>
+<body><p>Signing in…</p>
+<script>
+var w=window.open("`+escapedMagicLink+`","_blank");
+setTimeout(function(){if(w)try{w.close()}catch(e){}window.location.href="`+escapedTarget+`"},750);
+</script>
+</body></html>`)
 }
 
 func (s *Server) HandleAdminNewVM(c echo.Context) error {
