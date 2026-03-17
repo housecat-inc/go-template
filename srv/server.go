@@ -181,6 +181,7 @@ func (s *Server) Serve(addr string) error {
 		e.GET("/auth/google/callback", s.handleAuthLoginCallback)
 		e.GET("/connect/google/callback", s.HandleConnectCallback, s.RequireAuth)
 	}
+	e.GET("/connect/attio/callback", s.HandleAttioCallback, s.RequireAuth)
 	e.GET("/connect/granola/callback", s.HandleGranolaCallback, s.RequireAuth)
 	e.GET("/connect/slack/callback", s.HandleConnectCallback, s.RequireAuth)
 	e.GET("/connect/notion/callback", s.HandleNotionCallback, s.RequireAuth)

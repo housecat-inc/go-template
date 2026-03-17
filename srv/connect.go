@@ -17,6 +17,15 @@ import (
 	"github.com/housecat-inc/auth/mcp"
 )
 
+// oauthClientRegistration is the response from dynamic OAuth client registration
+// (RFC 7591) used by upstream MCP services (Attio, Granola, Notion).
+type oauthClientRegistration struct {
+	ClientID                string   `json:"client_id"`
+	ClientSecret            string   `json:"client_secret,omitempty"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+}
+
 var googleServices = map[string]bool{
 	"gcal":    true,
 	"gdocs":   true,
@@ -95,6 +104,9 @@ func (s *Server) serviceCallbackURL(r *http.Request, service string) string {
 
 func (s *Server) HandleConnectEnable(c echo.Context) error {
 	service := c.Param("service")
+	if service == "attio" {
+		return s.HandleAttioConnectEnable(c)
+	}
 	if service == "granola" {
 		return s.HandleGranolaConnectEnable(c)
 	}
@@ -365,6 +377,13 @@ func (s *Server) refreshOAuthToken(ctx context.Context, tok dbgen.OauthToken) (s
 		clientSecret = s.OAuth.ClientSecret
 	case "slack":
 		return "", errors.New("slack tokens do not support refresh")
+	case "attio":
+		endpoint = oauth2.Endpoint{
+			TokenURL:  "https://app.attio.com/oidc/token",
+			AuthStyle: oauth2.AuthStyleInParams,
+		}
+		clientID = tok.ClientID
+		clientSecret = ""
 	case "notion":
 		endpoint = oauth2.Endpoint{
 			TokenURL:  "https://mcp.notion.com/token",

@@ -27,18 +27,11 @@ const (
 	granolaTokenURL      = granolaAuthServer + "/oauth2/token"
 )
 
-type granolaClientRegistration struct {
-	ClientID                string   `json:"client_id"`
-	ClientSecret            string   `json:"client_secret,omitempty"`
-	RedirectURIs            []string `json:"redirect_uris"`
-	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
-}
-
 func (s *Server) granolaCallbackURL(r *http.Request) string {
 	return s.issuerURL(r) + "/connect/granola/callback"
 }
 
-func registerGranolaClient(ctx context.Context, callbackURL string) (*granolaClientRegistration, error) {
+func registerGranolaClient(ctx context.Context, callbackURL string) (*oauthClientRegistration, error) {
 	body, err := json.Marshal(map[string]any{
 		"client_name":                "Housecat",
 		"grant_types":                []string{"authorization_code", "refresh_token"},
@@ -68,7 +61,7 @@ func registerGranolaClient(ctx context.Context, callbackURL string) (*granolaCli
 		return nil, errors.Newf("registration failed: %d %s", resp.StatusCode, string(respBody))
 	}
 
-	var reg granolaClientRegistration
+	var reg oauthClientRegistration
 	if err := json.NewDecoder(resp.Body).Decode(&reg); err != nil {
 		return nil, errors.Wrap(err, "decode registration")
 	}

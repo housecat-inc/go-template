@@ -10,7 +10,7 @@ import (
 var toolsFS embed.FS
 
 // DefaultUpstreamTools returns the embedded tool definitions for upstream MCP
-// services (Granola, Notion). The snapshot is checked into the repo and updated
+// services (Attio, Granola, Notion). The snapshot is checked into the repo and updated
 // periodically. Any file matching *_tools.json in this package is loaded.
 func DefaultUpstreamTools() []UpstreamTool {
 	entries, err := toolsFS.ReadDir(".")

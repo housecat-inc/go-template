@@ -39,6 +39,14 @@ type UserIdentity struct {
 
 var Services = []Service{
 	{
+		ID:          "attio",
+		Name:        "Attio",
+		Description: "CRM records, notes, and tasks via Attio MCP",
+		Connections: []Connection{
+			{Level: "write", Description: "Read and write CRM data", Scopes: []string{"mcp", "openid", "offline_access"}},
+		},
+	},
+	{
 		ID:          "gcal",
 		Name:        "Google Calendar",
 		Description: "Calendar access via Google Calendar API",
@@ -211,6 +219,14 @@ func gsheetsClientFromRequest(ctx context.Context, req *gomcp.CallToolRequest, l
 	return &GSheetsClient{Token: token}, nil
 }
 
+func attioClientFromRequest(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, minLevel string) (*AttioClient, error) {
+	token, err := tokenForService(ctx, req, lookup, "attio", minLevel)
+	if err != nil {
+		return nil, err
+	}
+	return &AttioClient{Token: token}, nil
+}
+
 func granolaClientFromRequest(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, minLevel string) (*GranolaClient, error) {
 	token, err := tokenForService(ctx, req, lookup, "granola", minLevel)
 	if err != nil {
@@ -259,7 +275,7 @@ func errResult(msg string) (*gomcp.CallToolResult, any, error) {
 
 // UpstreamTool is a tool definition fetched from an upstream MCP server.
 type UpstreamTool struct {
-	Service     string          // "notion" or "granola"
+	Service     string          // "attio", "granola", or "notion"
 	Name        string          // upstream tool name (e.g. "notion-search")
 	Description string          // tool description
 	InputSchema json.RawMessage // exact upstream JSON schema
@@ -1100,7 +1116,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		return result, nil, err
 	})
 
-	// Upstream MCP tools (Granola, Notion)
+	// Upstream MCP tools (Attio, Granola, Notion)
 	// Registered dynamically from tool definitions fetched at startup.
 
 	type mcpClientFunc func(ctx context.Context, req *gomcp.CallToolRequest) (interface {
@@ -1108,6 +1124,11 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 	}, error)
 
 	serviceClients := map[string]mcpClientFunc{
+		"attio": func(ctx context.Context, req *gomcp.CallToolRequest) (interface {
+			CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error)
+		}, error) {
+			return attioClientFromRequest(ctx, req, lookup, "write")
+		},
 		"granola": func(ctx context.Context, req *gomcp.CallToolRequest) (interface {
 			CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error)
 		}, error) {

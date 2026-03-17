@@ -1,0 +1,437 @@
+[
+  {
+    "Service": "attio",
+    "Name": "search-records",
+    "Description": "Full-text search for records (people, companies, deals, etc.) by name, email, domain, or other indexed attributes.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The search query string"
+        },
+        "object_type": {
+          "type": "string",
+          "description": "Optional object type to filter by (e.g. 'people', 'companies', 'deals')"
+        },
+        "limit": {
+          "type": "number",
+          "description": "Maximum number of results to return"
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "get-records-by-ids",
+    "Description": "Retrieve full details for specific records by their IDs.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "record_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Array of record IDs to retrieve"
+        }
+      },
+      "required": ["record_ids"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "create-record",
+    "Description": "Create a new record (person, company, deal, or custom object).",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "object_type": {
+          "type": "string",
+          "description": "The type of record to create (e.g. 'people', 'companies', 'deals')"
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Key-value pairs of attribute values for the new record"
+        }
+      },
+      "required": ["object_type", "attributes"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "upsert-record",
+    "Description": "Create or update a record using a matching attribute (e.g., email or domain).",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "object_type": {
+          "type": "string",
+          "description": "The type of record to upsert (e.g. 'people', 'companies', 'deals')"
+        },
+        "matching_attribute": {
+          "type": "string",
+          "description": "The attribute to match on for finding existing records (e.g. 'email', 'domain')"
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Key-value pairs of attribute values"
+        }
+      },
+      "required": ["object_type", "matching_attribute", "attributes"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "list-attribute-definitions",
+    "Description": "List all attributes available on an object type, including their types and valid options.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "object_type": {
+          "type": "string",
+          "description": "The object type to list attributes for (e.g. 'people', 'companies', 'deals')"
+        }
+      },
+      "required": ["object_type"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "create-note",
+    "Description": "Create a new note attached to a record.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "description": "The ID of the record to attach the note to"
+        },
+        "title": {
+          "type": "string",
+          "description": "The title of the note"
+        },
+        "content": {
+          "type": "string",
+          "description": "The body content of the note in markdown"
+        }
+      },
+      "required": ["record_id", "content"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "search-notes-by-metadata",
+    "Description": "Search notes by parent record, author, meeting, or creation time.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "description": "Filter by parent record ID"
+        },
+        "author_id": {
+          "type": "string",
+          "description": "Filter by author ID"
+        },
+        "created_after": {
+          "type": "string",
+          "description": "Filter for notes created after this ISO 8601 date"
+        },
+        "created_before": {
+          "type": "string",
+          "description": "Filter for notes created before this ISO 8601 date"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "semantic-search-notes",
+    "Description": "Find notes by topic using AI-powered semantic search.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The semantic search query"
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "get-note-body",
+    "Description": "Retrieve the full content of a specific note.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "note_id": {
+          "type": "string",
+          "description": "The ID of the note to retrieve"
+        }
+      },
+      "required": ["note_id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "create-task",
+    "Description": "Create a new task with optional deadline, assignee, and linked record.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title of the task"
+        },
+        "deadline": {
+          "type": "string",
+          "description": "Optional deadline in ISO 8601 format"
+        },
+        "assignee_id": {
+          "type": "string",
+          "description": "Optional workspace member ID to assign the task to"
+        },
+        "record_id": {
+          "type": "string",
+          "description": "Optional record ID to link the task to"
+        }
+      },
+      "required": ["title"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "update-task",
+    "Description": "Update a task's deadline, status, assignee, or linked record.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The ID of the task to update"
+        },
+        "title": {
+          "type": "string",
+          "description": "Updated title"
+        },
+        "deadline": {
+          "type": "string",
+          "description": "Updated deadline in ISO 8601 format"
+        },
+        "status": {
+          "type": "string",
+          "description": "Updated status"
+        },
+        "assignee_id": {
+          "type": "string",
+          "description": "Updated assignee workspace member ID"
+        },
+        "record_id": {
+          "type": "string",
+          "description": "Updated linked record ID"
+        }
+      },
+      "required": ["task_id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "search-meetings",
+    "Description": "Search past and upcoming meetings by participants, related records, or time range.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query for meetings"
+        },
+        "participant_id": {
+          "type": "string",
+          "description": "Filter by participant ID"
+        },
+        "record_id": {
+          "type": "string",
+          "description": "Filter by related record ID"
+        },
+        "start_after": {
+          "type": "string",
+          "description": "Filter for meetings starting after this ISO 8601 date"
+        },
+        "start_before": {
+          "type": "string",
+          "description": "Filter for meetings starting before this ISO 8601 date"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "search-call-recordings-by-metadata",
+    "Description": "Search call recordings by participants, related records, title, or time range.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query for call recordings"
+        },
+        "participant_id": {
+          "type": "string",
+          "description": "Filter by participant ID"
+        },
+        "record_id": {
+          "type": "string",
+          "description": "Filter by related record ID"
+        },
+        "start_after": {
+          "type": "string",
+          "description": "Filter for recordings after this ISO 8601 date"
+        },
+        "start_before": {
+          "type": "string",
+          "description": "Filter for recordings before this ISO 8601 date"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "semantic-search-call-recordings",
+    "Description": "Find call recordings by topic using AI-powered semantic search.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The semantic search query"
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "get-call-recording",
+    "Description": "Retrieve full details and transcript of a specific call recording.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "call_recording_id": {
+          "type": "string",
+          "description": "The ID of the call recording to retrieve"
+        }
+      },
+      "required": ["call_recording_id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "search-emails-by-metadata",
+    "Description": "Search emails by participants, domain, or time range.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query for emails"
+        },
+        "participant_email": {
+          "type": "string",
+          "description": "Filter by participant email address"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Filter by email domain"
+        },
+        "sent_after": {
+          "type": "string",
+          "description": "Filter for emails sent after this ISO 8601 date"
+        },
+        "sent_before": {
+          "type": "string",
+          "description": "Filter for emails sent before this ISO 8601 date"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "semantic-search-emails",
+    "Description": "Find emails by topic using AI-powered semantic search.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The semantic search query"
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "get-email-content",
+    "Description": "Retrieve the full body of a specific email.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {
+        "email_id": {
+          "type": "string",
+          "description": "The ID of the email to retrieve"
+        }
+      },
+      "required": ["email_id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "list-workspace-members",
+    "Description": "List members in the workspace with their details and team memberships.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "list-workspace-teams",
+    "Description": "List all teams in the workspace.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "Service": "attio",
+    "Name": "whoami",
+    "Description": "Get information about the current user's identity and workspace membership.",
+    "InputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  }
+]

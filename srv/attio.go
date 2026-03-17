@@ -19,17 +19,17 @@ import (
 )
 
 const (
-	notionAuthServer   = "https://mcp.notion.com"
-	notionAuthorizeURL = notionAuthServer + "/authorize"
-	notionRegisterURL  = notionAuthServer + "/register"
-	notionTokenURL     = notionAuthServer + "/token"
+	attioAuthServer   = "https://app.attio.com"
+	attioAuthorizeURL = attioAuthServer + "/oidc/authorize"
+	attioRegisterURL  = attioAuthServer + "/oauth/register"
+	attioTokenURL     = attioAuthServer + "/oidc/token"
 )
 
-func (s *Server) notionCallbackURL(r *http.Request) string {
-	return s.issuerURL(r) + "/connect/notion/callback"
+func (s *Server) attioCallbackURL(r *http.Request) string {
+	return s.issuerURL(r) + "/connect/attio/callback"
 }
 
-func registerNotionClient(ctx context.Context, callbackURL string) (*oauthClientRegistration, error) {
+func registerAttioClient(ctx context.Context, callbackURL string) (*oauthClientRegistration, error) {
 	body, err := json.Marshal(map[string]any{
 		"client_name":                "Housecat",
 		"grant_types":                []string{"authorization_code", "refresh_token"},
@@ -41,7 +41,7 @@ func registerNotionClient(ctx context.Context, callbackURL string) (*oauthClient
 		return nil, errors.Wrap(err, "marshal registration")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, notionRegisterURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, attioRegisterURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create registration request")
 	}
@@ -66,17 +66,17 @@ func registerNotionClient(ctx context.Context, callbackURL string) (*oauthClient
 	return &reg, nil
 }
 
-func (s *Server) HandleNotionConnectEnable(c echo.Context) error {
+func (s *Server) HandleAttioConnectEnable(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
-	callbackURL := s.notionCallbackURL(r)
+	callbackURL := s.attioCallbackURL(r)
 
-	reg, err := registerNotionClient(ctx, callbackURL)
+	reg, err := registerAttioClient(ctx, callbackURL)
 	if err != nil {
-		slog.Error("notion register", "error", err)
-		return echo.NewHTTPError(http.StatusBadGateway, "failed to register with Notion")
+		slog.Error("attio register", "error", err)
+		return echo.NewHTTPError(http.StatusBadGateway, "failed to register with Attio")
 	}
 
 	state, err := randomHex(16)
@@ -99,7 +99,7 @@ func (s *Server) HandleNotionConnectEnable(c echo.Context) error {
 	}
 
 	c.SetCookie(&http.Cookie{
-		Name:     "notion_state",
+		Name:     "attio_state",
 		Value:    base64.RawURLEncoding.EncodeToString(stateData),
 		Path:     "/",
 		HttpOnly: true,
@@ -114,26 +114,26 @@ func (s *Server) HandleNotionConnectEnable(c echo.Context) error {
 		"code_challenge_method": {"S256"},
 		"redirect_uri":          {callbackURL},
 		"response_type":         {"code"},
-		"scope":                 {"openid email offline_access"},
+		"scope":                 {"mcp openid offline_access"},
 		"state":                 {state},
 	}
 
-	return c.Redirect(http.StatusFound, notionAuthorizeURL+"?"+params.Encode())
+	return c.Redirect(http.StatusFound, attioAuthorizeURL+"?"+params.Encode())
 }
 
-func (s *Server) HandleNotionCallback(c echo.Context) error {
+func (s *Server) HandleAttioCallback(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
 	userID := c.Get("userID").(string)
 	userEmail := c.Get("userEmail").(string)
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
-	stateCookie, err := r.Cookie("notion_state")
+	stateCookie, err := r.Cookie("attio_state")
 	if err != nil || stateCookie.Value == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "missing state cookie")
 	}
 	c.SetCookie(&http.Cookie{
-		Name:     "notion_state",
+		Name:     "attio_state",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
@@ -161,8 +161,8 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 	}
 
 	if errParam := c.QueryParam("error"); errParam != "" {
-		slog.Warn("notion oauth denied", "error", errParam, "description", c.QueryParam("error_description"))
-		return c.Redirect(http.StatusFound, "/connect/notion")
+		slog.Warn("attio oauth denied", "error", errParam, "description", c.QueryParam("error_description"))
+		return c.Redirect(http.StatusFound, "/connect/attio")
 	}
 
 	code := c.QueryParam("code")
@@ -174,7 +174,7 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid oauth state")
 	}
 
-	callbackURL := s.notionCallbackURL(r)
+	callbackURL := s.attioCallbackURL(r)
 
 	data := url.Values{
 		"client_id":     {saved.ClientID},
@@ -184,7 +184,7 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 		"redirect_uri":  {callbackURL},
 	}
 
-	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPost, notionTokenURL, strings.NewReader(data.Encode()))
+	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPost, attioTokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, "failed to exchange code")
 	}
@@ -193,14 +193,14 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	resp, err := httpClient.Do(tokenReq)
 	if err != nil {
-		slog.Error("notion token exchange", "error", err)
+		slog.Error("attio token exchange", "error", err)
 		return echo.NewHTTPError(http.StatusBadGateway, "failed to exchange code")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		slog.Error("notion token exchange", "status", resp.StatusCode, "body", string(respBody))
+		slog.Error("attio token exchange", "status", resp.StatusCode, "body", string(respBody))
 		return echo.NewHTTPError(http.StatusBadGateway, "token exchange failed")
 	}
 
@@ -230,25 +230,25 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 		ClientID:     saved.ClientID,
 		ExpiresAt:    expiresAt,
 		Level:        "write",
-		Provider:     "notion",
+		Provider:     "attio",
 		RefreshToken: tokenResp.RefreshToken,
-		Scopes:       "openid,email,offline_access",
-		Service:      "notion",
+		Scopes:       "mcp,openid,offline_access",
+		Service:      "attio",
 		UserID:       userID,
 	}); err != nil {
-		return errors.Wrap(err, "save notion token")
+		return errors.Wrap(err, "save attio token")
 	}
 
-	meta := userEmail + " connected Notion (write)"
+	meta := userEmail + " connected Attio (write)"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 		ActorID:    userID,
 		ActorType:  "user",
 		Action:     "connected_integration",
-		ObjectID:   "notion",
+		ObjectID:   "attio",
 		ObjectType: "integration",
 		Metadata:   &meta,
 	})
 
-	slog.Info("notion connected", "user", userEmail)
-	return c.Redirect(http.StatusFound, "/connect/notion?connected=1")
+	slog.Info("attio connected", "user", userEmail)
+	return c.Redirect(http.StatusFound, "/connect/attio?connected=1")
 }

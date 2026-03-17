@@ -34,6 +34,8 @@ type IntegrationsData struct {
 
 func integrationIcon(name string, size int) templ.Component {
 	switch name {
+	case "attio":
+		return icon.Contact(icon.Props{Size: size})
 	case "gcal":
 		return icon.Calendar(icon.Props{Size: size})
 	case "gdocs":

@@ -62,7 +62,7 @@ func TestConnections(t *testing.T) {
 	a.Contains(toolNames, "gmail_read_thread")
 	a.Contains(toolNames, "gmail_search_messages")
 	a.Contains(toolNames, "gmail_send_message")
-	// granola and notion tools are registered dynamically from upstream MCP
+	// attio, granola and notion tools are registered dynamically from upstream MCP
 	// and won't appear without upstreamTools passed to NewServer
 	a.Contains(toolNames, "slack_create_canvas")
 	a.Contains(toolNames, "slack_read_canvas")
@@ -84,7 +84,7 @@ func TestConnections(t *testing.T) {
 	text := res.Content[0].(*gomcp.TextContent).Text
 	var resp ConnectionsResponse
 	a.NoError(json.Unmarshal([]byte(text), &resp))
-	a.Len(resp.Services, 8)
+	a.Len(resp.Services, 9)
 	a.Nil(resp.User)
 
 	ids := make([]string, len(resp.Services))
@@ -96,7 +96,7 @@ func TestConnections(t *testing.T) {
 			a.Equal("https://example.com/connect/"+s.ID+"/enable/"+conn.Level, conn.URL)
 		}
 	}
-	a.Equal([]string{"gcal", "gdrive", "gdocs", "gmail", "gsheets", "granola", "notion", "slack"}, ids)
+	a.Equal([]string{"attio", "gcal", "gdrive", "gdocs", "gmail", "gsheets", "granola", "notion", "slack"}, ids)
 }
 
 func TestGmailToolsRequireAuth(t *testing.T) {
@@ -165,6 +165,32 @@ func TestGDriveToolsRequireAuth(t *testing.T) {
 	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
 		Name:      "gdrive_list_files",
 		Arguments: map[string]any{},
+	})
+	a.NoError(err)
+	a.True(res.IsError)
+	a.Contains(res.Content[0].(*gomcp.TextContent).Text, "not authenticated")
+}
+
+func TestAttioToolsRequireAuth(t *testing.T) {
+	a := assert.New(t)
+	ctx := context.Background()
+
+	upstreamTools := []UpstreamTool{
+		{Service: "attio", Name: "search-records", Description: "Search records", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+	}
+	server := NewServer("https://example.com", stubLookup(nil), nil, upstreamTools)
+	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
+
+	_, err := server.Connect(ctx, serverTransport, nil)
+	a.NoError(err)
+
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	a.NoError(err)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &gomcp.CallToolParams{
+		Name: "search-records",
 	})
 	a.NoError(err)
 	a.True(res.IsError)
