@@ -69,8 +69,28 @@ The service file includes:
 
 ### Google
 
-- Dev: https://console.cloud.google.com/auth/clients/50612844646-pm82tn2127p4k13atssol6pvnbds0fam.apps.googleusercontent.com?project=catclaw-488500
+- [Dev / Staging](https://console.cloud.google.com/auth/clients/776457397167-pln4fpcftdtgh8lc5g0gh0s0mimb35s9.apps.googleusercontent.com?project=housecat-staging-v0)
 - Prod: https://console.cloud.google.com/auth/clients?project=housecat-476300
+
+Data Access
+
+- [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=housecat-staging-v0)
+  - auth/gmail.readonly
+  - auth/gmail.compose
+  - auth/gmail.send
+- [GCal API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=housecat-staging-v0)
+  - auth/calendar.readonly
+  - auth/calendar
+- [GDrive API](https://console.cloud.google.com/apis/library/drive.googleapis.com?project=housecat-staging-v0)
+  - auth/drive.readonly
+  - auth/drive.file
+  - auth/drive
+- [GDocs API](https://console.cloud.google.com/apis/library/docs.googleapis.com?project=housecat-staging-v0)
+  - auth/documents.readonly
+  - auth/documents
+- [GSheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com?project=housecat-staging-v0)
+  - auth/spreadsheets.readonly
+  - auth/spreadsheets
 
 ### Slack
 
