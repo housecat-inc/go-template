@@ -124,7 +124,7 @@ func (s *Server) HandleNotionConnectEnable(c echo.Context) error {
 func (s *Server) HandleNotionCallback(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
@@ -234,14 +234,14 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 		RefreshToken: tokenResp.RefreshToken,
 		Scopes:       "openid,email,offline_access",
 		Service:      "notion",
-		UserID:       userID,
+		Subject:     subject,
 	}); err != nil {
 		return errors.Wrap(err, "save notion token")
 	}
 
 	meta := userEmail + " connected Notion (write)"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-		ActorID:    userID,
+		ActorID:    subject,
 		ActorType:  "user",
 		Action:     "connected_integration",
 		ObjectID:   "notion",

@@ -1,4 +1,4 @@
-.PHONY: build clean test generate install
+.PHONY: build clean test generate install setup-claude
 
 generate:
 	go generate ./...
@@ -18,6 +18,11 @@ install: build
 	sudo cp srv.service /etc/systemd/system/srv.service
 	sudo systemctl daemon-reload
 	sudo systemctl enable srv.service
+
+setup-claude:
+	mkdir -p /home/exedev/.claude
+	ln -sfn /home/exedev/go-template/.skills /home/exedev/.claude/skills
+	ln -sfn /home/exedev/go-template/AGENTS.md /home/exedev/CLAUDE.md
 
 clean:
 	rm -f bin/srv

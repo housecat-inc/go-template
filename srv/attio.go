@@ -124,7 +124,7 @@ func (s *Server) HandleAttioConnectEnable(c echo.Context) error {
 func (s *Server) HandleAttioCallback(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
@@ -234,14 +234,14 @@ func (s *Server) HandleAttioCallback(c echo.Context) error {
 		RefreshToken: tokenResp.RefreshToken,
 		Scopes:       "mcp,openid,offline_access",
 		Service:      "attio",
-		UserID:       userID,
+		Subject:     subject,
 	}); err != nil {
 		return errors.Wrap(err, "save attio token")
 	}
 
 	meta := userEmail + " connected Attio (write)"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-		ActorID:    userID,
+		ActorID:    subject,
 		ActorType:  "user",
 		Action:     "connected_integration",
 		ObjectID:   "attio",

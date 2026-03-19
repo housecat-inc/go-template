@@ -12,48 +12,48 @@ import (
 
 const deleteOAuthToken = `-- name: DeleteOAuthToken :exec
 DELETE FROM oauth_tokens
-WHERE user_id = ? AND service = ? AND level = ?
+WHERE subject = ? AND service = ? AND level = ?
 `
 
 type DeleteOAuthTokenParams struct {
-	UserID  string `json:"user_id"`
+	Subject string `json:"subject"`
 	Service string `json:"service"`
 	Level   string `json:"level"`
 }
 
 func (q *Queries) DeleteOAuthToken(ctx context.Context, arg DeleteOAuthTokenParams) error {
-	_, err := q.db.ExecContext(ctx, deleteOAuthToken, arg.UserID, arg.Service, arg.Level)
+	_, err := q.db.ExecContext(ctx, deleteOAuthToken, arg.Subject, arg.Service, arg.Level)
 	return err
 }
 
-const deleteOAuthTokensByUserAndService = `-- name: DeleteOAuthTokensByUserAndService :exec
+const deleteOAuthTokensBySubjectAndService = `-- name: DeleteOAuthTokensBySubjectAndService :exec
 DELETE FROM oauth_tokens
-WHERE user_id = ? AND service = ?
+WHERE subject = ? AND service = ?
 `
 
-type DeleteOAuthTokensByUserAndServiceParams struct {
-	UserID  string `json:"user_id"`
+type DeleteOAuthTokensBySubjectAndServiceParams struct {
+	Subject string `json:"subject"`
 	Service string `json:"service"`
 }
 
-func (q *Queries) DeleteOAuthTokensByUserAndService(ctx context.Context, arg DeleteOAuthTokensByUserAndServiceParams) error {
-	_, err := q.db.ExecContext(ctx, deleteOAuthTokensByUserAndService, arg.UserID, arg.Service)
+func (q *Queries) DeleteOAuthTokensBySubjectAndService(ctx context.Context, arg DeleteOAuthTokensBySubjectAndServiceParams) error {
+	_, err := q.db.ExecContext(ctx, deleteOAuthTokensBySubjectAndService, arg.Subject, arg.Service)
 	return err
 }
 
 const getOAuthToken = `-- name: GetOAuthToken :one
-SELECT id, access_token, expires_at, level, provider, refresh_token, scopes, service, user_id, created_at, updated_at, client_id FROM oauth_tokens
-WHERE user_id = ? AND service = ? AND level = ?
+SELECT id, access_token, expires_at, level, provider, refresh_token, scopes, service, subject, created_at, updated_at, client_id FROM oauth_tokens
+WHERE subject = ? AND service = ? AND level = ?
 `
 
 type GetOAuthTokenParams struct {
-	UserID  string `json:"user_id"`
+	Subject string `json:"subject"`
 	Service string `json:"service"`
 	Level   string `json:"level"`
 }
 
 func (q *Queries) GetOAuthToken(ctx context.Context, arg GetOAuthTokenParams) (OauthToken, error) {
-	row := q.db.QueryRowContext(ctx, getOAuthToken, arg.UserID, arg.Service, arg.Level)
+	row := q.db.QueryRowContext(ctx, getOAuthToken, arg.Subject, arg.Service, arg.Level)
 	var i OauthToken
 	err := row.Scan(
 		&i.ID,
@@ -64,7 +64,7 @@ func (q *Queries) GetOAuthToken(ctx context.Context, arg GetOAuthTokenParams) (O
 		&i.RefreshToken,
 		&i.Scopes,
 		&i.Service,
-		&i.UserID,
+		&i.Subject,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ClientID,
@@ -72,14 +72,14 @@ func (q *Queries) GetOAuthToken(ctx context.Context, arg GetOAuthTokenParams) (O
 	return i, err
 }
 
-const listOAuthTokensByUser = `-- name: ListOAuthTokensByUser :many
-SELECT id, access_token, expires_at, level, provider, refresh_token, scopes, service, user_id, created_at, updated_at, client_id FROM oauth_tokens
-WHERE user_id = ?
+const listOAuthTokensBySubject = `-- name: ListOAuthTokensBySubject :many
+SELECT id, access_token, expires_at, level, provider, refresh_token, scopes, service, subject, created_at, updated_at, client_id FROM oauth_tokens
+WHERE subject = ?
 ORDER BY service, level
 `
 
-func (q *Queries) ListOAuthTokensByUser(ctx context.Context, userID string) ([]OauthToken, error) {
-	rows, err := q.db.QueryContext(ctx, listOAuthTokensByUser, userID)
+func (q *Queries) ListOAuthTokensBySubject(ctx context.Context, subject string) ([]OauthToken, error) {
+	rows, err := q.db.QueryContext(ctx, listOAuthTokensBySubject, subject)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (q *Queries) ListOAuthTokensByUser(ctx context.Context, userID string) ([]O
 			&i.RefreshToken,
 			&i.Scopes,
 			&i.Service,
-			&i.UserID,
+			&i.Subject,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ClientID,
@@ -115,9 +115,9 @@ func (q *Queries) ListOAuthTokensByUser(ctx context.Context, userID string) ([]O
 }
 
 const upsertOAuthToken = `-- name: UpsertOAuthToken :exec
-INSERT INTO oauth_tokens (access_token, client_id, expires_at, level, provider, refresh_token, scopes, service, user_id)
+INSERT INTO oauth_tokens (access_token, client_id, expires_at, level, provider, refresh_token, scopes, service, subject)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(user_id, service, level) DO UPDATE SET
+ON CONFLICT(subject, service, level) DO UPDATE SET
     access_token = excluded.access_token,
     client_id = excluded.client_id,
     expires_at = excluded.expires_at,
@@ -135,7 +135,7 @@ type UpsertOAuthTokenParams struct {
 	RefreshToken string     `json:"refresh_token"`
 	Scopes       string     `json:"scopes"`
 	Service      string     `json:"service"`
-	UserID       string     `json:"user_id"`
+	Subject      string     `json:"subject"`
 }
 
 func (q *Queries) UpsertOAuthToken(ctx context.Context, arg UpsertOAuthTokenParams) error {
@@ -148,7 +148,7 @@ func (q *Queries) UpsertOAuthToken(ctx context.Context, arg UpsertOAuthTokenPara
 		arg.RefreshToken,
 		arg.Scopes,
 		arg.Service,
-		arg.UserID,
+		arg.Subject,
 	)
 	return err
 }

@@ -180,7 +180,7 @@ func (s *Server) HandleConnectEnable(c echo.Context) error {
 func (s *Server) HandleConnectCallback(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
@@ -273,14 +273,14 @@ func (s *Server) HandleConnectCallback(c echo.Context) error {
 		RefreshToken: refreshToken,
 		Scopes:       scopeStr,
 		Service:      service,
-		UserID:       userID,
+		Subject:     subject,
 	}); err != nil {
 		return errors.Wrap(err, "save oauth token")
 	}
 
 	meta := userEmail + " connected " + svc.Name + " (" + level + ")"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-		ActorID:    userID,
+		ActorID:    subject,
 		ActorType:  "user",
 		Action:     "connected_integration",
 		ObjectID:   service,
@@ -326,7 +326,7 @@ func (s *Server) slackTokenExchange(ctx context.Context, cfg *oauth2.Config, cod
 
 func (s *Server) HandleConnectDisconnect(c echo.Context) error {
 	ctx := c.Request().Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 	service := c.Param("service")
 	level := c.Param("level")
@@ -342,7 +342,7 @@ func (s *Server) HandleConnectDisconnect(c echo.Context) error {
 
 	q := dbgen.New(s.DB)
 	if err := q.DeleteOAuthToken(ctx, dbgen.DeleteOAuthTokenParams{
-		UserID:  userID,
+		Subject: subject,
 		Service: service,
 		Level:   level,
 	}); err != nil {
@@ -351,7 +351,7 @@ func (s *Server) HandleConnectDisconnect(c echo.Context) error {
 
 	meta := userEmail + " disconnected " + svc.Name + " (" + level + ")"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-		ActorID:    userID,
+		ActorID:    subject,
 		ActorType:  "user",
 		Action:     "disconnected_integration",
 		ObjectID:   service,
@@ -441,11 +441,11 @@ func (s *Server) refreshOAuthToken(ctx context.Context, tok dbgen.OauthToken) (s
 		RefreshToken: refreshToken,
 		Scopes:       tok.Scopes,
 		Service:      tok.Service,
-		UserID:       tok.UserID,
+		Subject:     tok.Subject,
 	}); err != nil {
 		slog.Warn("failed to persist refreshed token", "service", tok.Service, "error", err)
 	}
 
-	slog.Info("oauth token refreshed", "service", tok.Service, "level", tok.Level, "user", tok.UserID)
+	slog.Info("oauth token refreshed", "service", tok.Service, "level", tok.Level, "subject", tok.Subject)
 	return newToken.AccessToken, nil
 }

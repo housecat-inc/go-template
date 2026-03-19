@@ -91,34 +91,34 @@ func (s *Server) RequireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		r := c.Request()
 
-		var logoutURL, provider, userEmail, userID string
+		var logoutURL, provider, subject, userEmail string
 
 		session, err := s.getSession(r)
 		if err == nil {
 			logoutURL = "/auth/logout"
 			provider = session.Provider
+			subject = session.Subject
 			userEmail = session.Email
-			userID = session.UserID
 		} else if isLoopback(r) {
 			logoutURL = ""
 			provider = "localhost"
+			subject = "browser-tool"
 			userEmail = "tool@localhost"
-			userID = "browser-tool"
 		} else {
-			userID = strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
+			subject = strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
 			userEmail = strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
 			logoutURL = "/__exe.dev/logout?redirect=/"
 			provider = "exe.dev"
 		}
 
-		if userID == "" {
+		if subject == "" {
 			return c.Redirect(http.StatusFound, "/")
 		}
 
 		c.Set("logoutURL", logoutURL)
 		c.Set("provider", provider)
+		c.Set("subject", subject)
 		c.Set("userEmail", userEmail)
-		c.Set("userID", userID)
 		return next(c)
 	}
 }
@@ -243,10 +243,10 @@ func (s *Server) HandleAuthLogout(c echo.Context) error {
 			if sess, err := q.GetSession(ctx, sessionID); err == nil {
 				provider := sess.Provider
 				_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-					ActorID:    sess.UserID,
+					ActorID:    sess.Subject,
 					ActorType:  "user",
 					Action:     "logged_out",
-					ObjectID:   sess.UserID,
+					ObjectID:   sess.Subject,
 					ObjectType: "user",
 					Metadata:   &provider,
 				})
@@ -285,15 +285,15 @@ func loginURLForRequest(r *http.Request) string {
 
 func (s *Server) HandleAuthExeDev(c echo.Context) error {
 	r := c.Request()
-	userID := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
+	subject := strings.TrimSpace(r.Header.Get("X-ExeDev-UserID"))
 	userEmail := strings.TrimSpace(r.Header.Get("X-ExeDev-Email"))
-	if userID == "" || userEmail == "" {
+	if subject == "" || userEmail == "" {
 		return c.Redirect(http.StatusFound, loginURLForRequest(r))
 	}
-	return s.createSessionAndRedirect(c, userID, userEmail, "exe.dev")
+	return s.createSessionAndRedirect(c, subject, userEmail, "exe.dev")
 }
 
-func (s *Server) createSessionAndRedirect(c echo.Context, userID, email, provider string) error {
+func (s *Server) createSessionAndRedirect(c echo.Context, subject, email, provider string) error {
 	r := c.Request()
 	ctx := r.Context()
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
@@ -307,7 +307,7 @@ func (s *Server) createSessionAndRedirect(c echo.Context, userID, email, provide
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
 	if err := q.InsertSession(ctx, dbgen.InsertSessionParams{
 		ID:        sessionID,
-		UserID:    userID,
+		Subject:   subject,
 		Email:     email,
 		Provider:  provider,
 		ExpiresAt: expiresAt,
@@ -316,10 +316,10 @@ func (s *Server) createSessionAndRedirect(c echo.Context, userID, email, provide
 	}
 
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-		ActorID:    userID,
+		ActorID:    subject,
 		ActorType:  "user",
 		Action:     "logged_in",
-		ObjectID:   userID,
+		ObjectID:   subject,
 		ObjectType: "user",
 		Metadata:   &provider,
 	})

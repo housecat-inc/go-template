@@ -21,7 +21,7 @@ import (
 func (s *Server) HandleAdminVMs(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 	logoutURL := c.Get("logoutURL").(string)
 
@@ -64,7 +64,7 @@ func (s *Server) HandleAdminVMs(c echo.Context) error {
 		}
 
 		_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-			ActorID:    userID,
+			ActorID:    subject,
 			ActorType:  "user",
 			Action:     "admin_page_view",
 			ObjectID:   "vms",
@@ -92,7 +92,7 @@ func (s *Server) HandleAdminVMs(c echo.Context) error {
 
 		if len(activities) == 0 {
 			dbActivities, err = q.ListActivitiesByActor(ctx, dbgen.ListActivitiesByActorParams{
-				ActorID: userID,
+				ActorID: subject,
 				Limit:   10,
 			})
 			if err == nil {
@@ -178,7 +178,7 @@ setTimeout(function(){if(w)try{w.close()}catch(e){}window.location.href="`+escap
 func (s *Server) HandleAdminNewVM(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 
 	if s.ExeDev == nil {
@@ -193,7 +193,7 @@ func (s *Server) HandleAdminNewVM(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid app")
 	}
 
-	token, _, err := s.createRegistrationToken(ctx, userID)
+	token, _, err := s.createRegistrationToken(ctx, subject)
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func (s *Server) HandleAdminNewVM(c echo.Context) error {
 
 	meta := userEmail + " (" + app + ")"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-		ActorID:    userID,
+		ActorID:    subject,
 		ActorType:  "user",
 		Action:     "created_vm",
 		ObjectID:   result.Name,
@@ -312,7 +312,7 @@ func vmSetupPage(name string) string {
 
 func (s *Server) HandleAdminDeleteVM(c echo.Context) error {
 	ctx := c.Request().Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 	vmName := c.Param("name")
 
@@ -338,7 +338,7 @@ func (s *Server) HandleAdminDeleteVM(c echo.Context) error {
 	if s.DB != nil {
 		q := dbgen.New(s.DB)
 		_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-			ActorID:    userID,
+			ActorID:    subject,
 			ActorType:  "user",
 			Action:     "deleted_vm",
 			ObjectID:   vmName,

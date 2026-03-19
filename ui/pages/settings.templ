@@ -1,0 +1,64 @@
+package pages
+
+import (
+	"github.com/housecat-inc/auth/ui/components/button"
+	"github.com/housecat-inc/auth/ui/components/card"
+	"github.com/housecat-inc/auth/ui/components/checkbox"
+	"github.com/housecat-inc/auth/ui/components/label"
+	"github.com/housecat-inc/auth/ui/layouts"
+)
+
+type SettingsData struct {
+	BrandingFooter bool
+	LogoutURL      string
+	UserEmail      string
+}
+
+templ Settings(data SettingsData, isAdmin bool) {
+	@layouts.Layout(layouts.NavData{
+		IsAdmin:   isAdmin,
+		Title:     "Housecat Auth",
+		UserEmail: data.UserEmail,
+		LogoutURL: data.LogoutURL,
+	}) {
+		<div class="space-y-8">
+			<div>
+				<h1 class="text-3xl font-bold tracking-tight">Settings</h1>
+				<p class="text-muted-foreground mt-1">Manage your preferences</p>
+			</div>
+			@card.Card() {
+				@card.Header() {
+					@card.Title() {
+						Branding
+					}
+					@card.Description() {
+						Control how Housecat is attributed in content created on your behalf.
+					}
+				}
+				@card.Content() {
+					<form method="POST" action="/settings" class="space-y-6">
+						<div class="flex items-start gap-3">
+							@checkbox.Checkbox(checkbox.Props{
+								ID:      "branding_footer",
+								Name:    "branding_footer",
+								Value:   "on",
+								Checked: data.BrandingFooter,
+							})
+							@label.Label(label.Props{For: "branding_footer"}) {
+								<div>
+									<span class="font-medium">Include "Sent with Housecat" footer</span>
+									<p class="text-sm text-muted-foreground mt-0.5">
+										Adds a small footer to emails, calendar events, and Slack messages created through Housecat.
+									</p>
+								</div>
+							}
+						</div>
+						@button.Button(button.Props{Type: "submit"}) {
+							Save
+						}
+					</form>
+				}
+			}
+		</div>
+	}
+}

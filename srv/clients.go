@@ -55,7 +55,7 @@ func (s *Server) HandleClientsNew(c echo.Context) error {
 
 func (s *Server) HandleClientsCreate(c echo.Context) error {
 	ctx := c.Request().Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 
 	allowedDomain := strings.TrimSpace(c.FormValue("allowed_domain"))
@@ -89,14 +89,14 @@ func (s *Server) HandleClientsCreate(c echo.Context) error {
 		Name:          name,
 		RedirectUris:  redirectURIs,
 		Scopes:        scopes,
-		CreatedBy:     userID,
+		CreatedBy:     subject,
 	})
 	if err != nil {
 		return errors.Wrap(err, "insert client")
 	}
 
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-		ActorID:    userID,
+		ActorID:    subject,
 		ActorType:  "user",
 		Action:     "created_client",
 		ObjectID:   fmt.Sprintf("%d", client.ID),
@@ -186,7 +186,7 @@ func (s *Server) HandleClientsEdit(c echo.Context) error {
 
 func (s *Server) HandleClientsUpdate(c echo.Context) error {
 	ctx := c.Request().Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -220,7 +220,7 @@ func (s *Server) HandleClientsUpdate(c echo.Context) error {
 	}
 
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-		ActorID:    userID,
+		ActorID:    subject,
 		ActorType:  "user",
 		Action:     "updated_client",
 		ObjectID:   fmt.Sprintf("%d", id),
@@ -252,7 +252,7 @@ func (s *Server) HandleClientsUpdate(c echo.Context) error {
 
 func (s *Server) HandleClientsArchive(c echo.Context) error {
 	ctx := c.Request().Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -266,7 +266,7 @@ func (s *Server) HandleClientsArchive(c echo.Context) error {
 	}
 
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-		ActorID:    userID,
+		ActorID:    subject,
 		ActorType:  "user",
 		Action:     "archived_client",
 		ObjectID:   fmt.Sprintf("%d", id),

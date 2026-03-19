@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-const countSessionsByUser = `-- name: CountSessionsByUser :one
+const countSessionsBySubject = `-- name: CountSessionsBySubject :one
 SELECT COUNT(*) FROM sessions
-WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP
+WHERE subject = ? AND expires_at > CURRENT_TIMESTAMP
 `
 
-func (q *Queries) CountSessionsByUser(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countSessionsByUser, userID)
+func (q *Queries) CountSessionsBySubject(ctx context.Context, subject string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSessionsBySubject, subject)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -40,22 +40,22 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
-const getEmailByUserID = `-- name: GetEmailByUserID :one
+const getEmailBySubject = `-- name: GetEmailBySubject :one
 SELECT email FROM sessions
-WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP
+WHERE subject = ? AND expires_at > CURRENT_TIMESTAMP
 ORDER BY created_at DESC
 LIMIT 1
 `
 
-func (q *Queries) GetEmailByUserID(ctx context.Context, userID string) (string, error) {
-	row := q.db.QueryRowContext(ctx, getEmailByUserID, userID)
+func (q *Queries) GetEmailBySubject(ctx context.Context, subject string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEmailBySubject, subject)
 	var email string
 	err := row.Scan(&email)
 	return email, err
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, user_id, email, created_at, expires_at, provider FROM sessions
+SELECT id, subject, email, created_at, expires_at, provider FROM sessions
 WHERE id = ? AND expires_at > CURRENT_TIMESTAMP
 `
 
@@ -64,7 +64,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 	var i Session
 	err := row.Scan(
 		&i.ID,
-		&i.UserID,
+		&i.Subject,
 		&i.Email,
 		&i.CreatedAt,
 		&i.ExpiresAt,
@@ -74,13 +74,13 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const insertSession = `-- name: InsertSession :exec
-INSERT INTO sessions (id, user_id, email, provider, expires_at)
+INSERT INTO sessions (id, subject, email, provider, expires_at)
 VALUES (?, ?, ?, ?, ?)
 `
 
 type InsertSessionParams struct {
 	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
+	Subject   string    `json:"subject"`
 	Email     string    `json:"email"`
 	Provider  string    `json:"provider"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -89,7 +89,7 @@ type InsertSessionParams struct {
 func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) error {
 	_, err := q.db.ExecContext(ctx, insertSession,
 		arg.ID,
-		arg.UserID,
+		arg.Subject,
 		arg.Email,
 		arg.Provider,
 		arg.ExpiresAt,

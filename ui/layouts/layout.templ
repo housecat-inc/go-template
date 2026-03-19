@@ -128,6 +128,15 @@ templ Sidebar(nav NavData) {
 				@icon.User(icon.Props{Size: 16})
 				Profile
 			}
+			@button.Button(button.Props{
+				Variant:   button.VariantGhost,
+				FullWidth: true,
+				Class:     "justify-start",
+				Href:      "/settings",
+			}) {
+				@icon.Settings(icon.Props{Size: 16})
+				Settings
+			}
 			if nav.IsAdmin {
 				@button.Button(button.Props{
 					Variant:   button.VariantGhost,

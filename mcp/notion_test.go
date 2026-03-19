@@ -66,7 +66,7 @@ func TestUpstreamToolsRegistered(t *testing.T) {
 		{Service: "granola", Name: "list_meetings", Description: "List meetings", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
 		{Service: "notion", Name: "notion-search", Description: "Search Notion", InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`)},
 	}
-	server := NewServer("https://example.com", stubLookup(nil), nil, upstreamTools)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil, upstreamTools)
 
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)

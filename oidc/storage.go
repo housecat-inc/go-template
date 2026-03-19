@@ -156,7 +156,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		Token:         refreshToken,
 		AuthTime:      authTime,
 		Audience:      strings.Join(request.GetAudience(), ","),
-		UserID:        request.GetSubject(),
+		Subject:       request.GetSubject(),
 		ApplicationID: clientIDFromRequest(request),
 		Scopes:        strings.Join(scopes, ","),
 		ExpiresAt:     refreshExpiry,
@@ -192,7 +192,7 @@ func (s *Storage) TerminateSession(ctx context.Context, userID, clientID string)
 		return errors.Wrap(err, "delete access tokens")
 	}
 	return s.q().DeleteRefreshTokensBySubject(ctx, dbgen.DeleteRefreshTokensBySubjectParams{
-		UserID:        userID,
+		Subject:       userID,
 		ApplicationID: clientID,
 	})
 }
@@ -217,7 +217,7 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID, userID, clien
 		if clientID != "" && rt.ApplicationID != clientID {
 			return oidc.ErrServerError().WithDescription("token does not belong to client")
 		}
-		if userID != "" && rt.UserID != userID {
+		if userID != "" && rt.Subject != userID {
 			return oidc.ErrServerError().WithDescription("token does not belong to user")
 		}
 		if err := s.q().DeleteRefreshTokenByToken(ctx, tokenOrTokenID); err != nil {
@@ -237,7 +237,7 @@ func (s *Storage) GetRefreshTokenInfo(ctx context.Context, clientID, token strin
 	if clientID != "" && row.ApplicationID != clientID {
 		return "", "", op.ErrInvalidRefreshToken
 	}
-	return row.ID, row.UserID, nil
+	return row.ID, row.Subject, nil
 }
 
 func (s *Storage) SigningKey(ctx context.Context) (op.SigningKey, error) {
@@ -328,15 +328,15 @@ func (s *Storage) Health(ctx context.Context) error {
 // CompleteAuthRequest marks an auth request as done after user authentication.
 func (s *Storage) CompleteAuthRequest(ctx context.Context, id, userID, email string) error {
 	return s.q().CompleteAuthRequest(ctx, dbgen.CompleteAuthRequestParams{
-		UserID:  userID,
+		ID:        id,
+		Subject:   userID,
 		UserEmail: email,
-		ID:      id,
 	})
 }
 
 func (s *Storage) LookupEmail(ctx context.Context, userID, clientID string) string {
-	row, err := s.q().GetLatestAuthRequestByUserAndClient(ctx, dbgen.GetLatestAuthRequestByUserAndClientParams{
-		UserID:   userID,
+	row, err := s.q().GetLatestAuthRequestBySubjectAndClient(ctx, dbgen.GetLatestAuthRequestBySubjectAndClientParams{
+		Subject:  userID,
 		ClientID: clientID,
 	})
 	if err == nil && row.UserEmail != "" {

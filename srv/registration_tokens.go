@@ -17,7 +17,7 @@ const (
 	registrationAppID = "_registration"
 )
 
-func (s *Server) createRegistrationToken(ctx context.Context, userID string) (string, time.Time, error) {
+func (s *Server) createRegistrationToken(ctx context.Context, subject string) (string, time.Time, error) {
 	tokenID := uuid.NewString()
 	expiresAt := time.Now().UTC().Add(15 * time.Minute)
 
@@ -25,7 +25,7 @@ func (s *Server) createRegistrationToken(ctx context.Context, userID string) (st
 	err := q.InsertAccessToken(ctx, dbgen.InsertAccessTokenParams{
 		ID:            tokenID,
 		ApplicationID: registrationAppID,
-		Subject:       userID,
+		Subject:       subject,
 		Audience:      "",
 		Scopes:        registrationScope,
 		ExpiresAt:     expiresAt,
@@ -40,9 +40,9 @@ func (s *Server) createRegistrationToken(ctx context.Context, userID string) (st
 // client:register scope (an RFC 7591 Initial Access Token).
 func (s *Server) HandleRegistrationToken(c echo.Context) error {
 	ctx := c.Request().Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 
-	tokenID, expiresAt, err := s.createRegistrationToken(ctx, userID)
+	tokenID, expiresAt, err := s.createRegistrationToken(ctx, subject)
 	if err != nil {
 		return err
 	}

@@ -12,18 +12,18 @@ import (
 
 const completeAuthRequest = `-- name: CompleteAuthRequest :exec
 UPDATE oidc_auth_requests
-SET user_id = ?, user_email = ?, auth_time = CURRENT_TIMESTAMP, done = 1
+SET subject = ?, user_email = ?, auth_time = CURRENT_TIMESTAMP, done = 1
 WHERE id = ?
 `
 
 type CompleteAuthRequestParams struct {
-	UserID    string `json:"user_id"`
+	Subject   string `json:"subject"`
 	UserEmail string `json:"user_email"`
 	ID        string `json:"id"`
 }
 
 func (q *Queries) CompleteAuthRequest(ctx context.Context, arg CompleteAuthRequestParams) error {
-	_, err := q.db.ExecContext(ctx, completeAuthRequest, arg.UserID, arg.UserEmail, arg.ID)
+	_, err := q.db.ExecContext(ctx, completeAuthRequest, arg.Subject, arg.UserEmail, arg.ID)
 	return err
 }
 
@@ -96,16 +96,16 @@ func (q *Queries) DeleteRefreshTokenByToken(ctx context.Context, token string) e
 }
 
 const deleteRefreshTokensBySubject = `-- name: DeleteRefreshTokensBySubject :exec
-DELETE FROM oidc_refresh_tokens WHERE user_id = ? AND application_id = ?
+DELETE FROM oidc_refresh_tokens WHERE subject = ? AND application_id = ?
 `
 
 type DeleteRefreshTokensBySubjectParams struct {
-	UserID        string `json:"user_id"`
+	Subject       string `json:"subject"`
 	ApplicationID string `json:"application_id"`
 }
 
 func (q *Queries) DeleteRefreshTokensBySubject(ctx context.Context, arg DeleteRefreshTokensBySubjectParams) error {
-	_, err := q.db.ExecContext(ctx, deleteRefreshTokensBySubject, arg.UserID, arg.ApplicationID)
+	_, err := q.db.ExecContext(ctx, deleteRefreshTokensBySubject, arg.Subject, arg.ApplicationID)
 	return err
 }
 
@@ -130,7 +130,7 @@ func (q *Queries) GetAccessToken(ctx context.Context, id string) (OidcAccessToke
 }
 
 const getAuthRequest = `-- name: GetAuthRequest :one
-SELECT id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method, user_id, user_email, auth_time, done, created_at FROM oidc_auth_requests WHERE id = ?
+SELECT id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method, subject, user_email, auth_time, done, created_at FROM oidc_auth_requests WHERE id = ?
 `
 
 func (q *Queries) GetAuthRequest(ctx context.Context, id string) (OidcAuthRequest, error) {
@@ -146,7 +146,7 @@ func (q *Queries) GetAuthRequest(ctx context.Context, id string) (OidcAuthReques
 		&i.ResponseType,
 		&i.CodeChallenge,
 		&i.CodeChallengeMethod,
-		&i.UserID,
+		&i.Subject,
 		&i.UserEmail,
 		&i.AuthTime,
 		&i.Done,
@@ -156,7 +156,7 @@ func (q *Queries) GetAuthRequest(ctx context.Context, id string) (OidcAuthReques
 }
 
 const getAuthRequestByCode = `-- name: GetAuthRequestByCode :one
-SELECT r.id, r.client_id, r.redirect_uri, r.scopes, r.state, r.nonce, r.response_type, r.code_challenge, r.code_challenge_method, r.user_id, r.user_email, r.auth_time, r.done, r.created_at FROM oidc_auth_requests r
+SELECT r.id, r.client_id, r.redirect_uri, r.scopes, r.state, r.nonce, r.response_type, r.code_challenge, r.code_challenge_method, r.subject, r.user_email, r.auth_time, r.done, r.created_at FROM oidc_auth_requests r
 JOIN oidc_codes c ON c.auth_request_id = r.id
 WHERE c.code = ?
 `
@@ -174,7 +174,7 @@ func (q *Queries) GetAuthRequestByCode(ctx context.Context, code string) (OidcAu
 		&i.ResponseType,
 		&i.CodeChallenge,
 		&i.CodeChallengeMethod,
-		&i.UserID,
+		&i.Subject,
 		&i.UserEmail,
 		&i.AuthTime,
 		&i.Done,
@@ -183,20 +183,20 @@ func (q *Queries) GetAuthRequestByCode(ctx context.Context, code string) (OidcAu
 	return i, err
 }
 
-const getLatestAuthRequestByUserAndClient = `-- name: GetLatestAuthRequestByUserAndClient :one
-SELECT id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method, user_id, user_email, auth_time, done, created_at FROM oidc_auth_requests
-WHERE user_id = ? AND client_id = ? AND done = 1
+const getLatestAuthRequestBySubjectAndClient = `-- name: GetLatestAuthRequestBySubjectAndClient :one
+SELECT id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method, subject, user_email, auth_time, done, created_at FROM oidc_auth_requests
+WHERE subject = ? AND client_id = ? AND done = 1
 ORDER BY created_at DESC
 LIMIT 1
 `
 
-type GetLatestAuthRequestByUserAndClientParams struct {
-	UserID   string `json:"user_id"`
+type GetLatestAuthRequestBySubjectAndClientParams struct {
+	Subject  string `json:"subject"`
 	ClientID string `json:"client_id"`
 }
 
-func (q *Queries) GetLatestAuthRequestByUserAndClient(ctx context.Context, arg GetLatestAuthRequestByUserAndClientParams) (OidcAuthRequest, error) {
-	row := q.db.QueryRowContext(ctx, getLatestAuthRequestByUserAndClient, arg.UserID, arg.ClientID)
+func (q *Queries) GetLatestAuthRequestBySubjectAndClient(ctx context.Context, arg GetLatestAuthRequestBySubjectAndClientParams) (OidcAuthRequest, error) {
+	row := q.db.QueryRowContext(ctx, getLatestAuthRequestBySubjectAndClient, arg.Subject, arg.ClientID)
 	var i OidcAuthRequest
 	err := row.Scan(
 		&i.ID,
@@ -208,7 +208,7 @@ func (q *Queries) GetLatestAuthRequestByUserAndClient(ctx context.Context, arg G
 		&i.ResponseType,
 		&i.CodeChallenge,
 		&i.CodeChallengeMethod,
-		&i.UserID,
+		&i.Subject,
 		&i.UserEmail,
 		&i.AuthTime,
 		&i.Done,
@@ -218,7 +218,7 @@ func (q *Queries) GetLatestAuthRequestByUserAndClient(ctx context.Context, arg G
 }
 
 const getRefreshToken = `-- name: GetRefreshToken :one
-SELECT id, token, auth_time, audience, user_id, application_id, scopes, expires_at, created_at FROM oidc_refresh_tokens
+SELECT id, token, auth_time, audience, subject, application_id, scopes, expires_at, created_at FROM oidc_refresh_tokens
 WHERE token = ? AND expires_at > CURRENT_TIMESTAMP
 `
 
@@ -230,7 +230,7 @@ func (q *Queries) GetRefreshToken(ctx context.Context, token string) (OidcRefres
 		&i.Token,
 		&i.AuthTime,
 		&i.Audience,
-		&i.UserID,
+		&i.Subject,
 		&i.ApplicationID,
 		&i.Scopes,
 		&i.ExpiresAt,
@@ -312,7 +312,7 @@ func (q *Queries) InsertAuthRequest(ctx context.Context, arg InsertAuthRequestPa
 }
 
 const insertRefreshToken = `-- name: InsertRefreshToken :exec
-INSERT INTO oidc_refresh_tokens (id, token, auth_time, audience, user_id, application_id, scopes, expires_at)
+INSERT INTO oidc_refresh_tokens (id, token, auth_time, audience, subject, application_id, scopes, expires_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
@@ -321,7 +321,7 @@ type InsertRefreshTokenParams struct {
 	Token         string    `json:"token"`
 	AuthTime      time.Time `json:"auth_time"`
 	Audience      string    `json:"audience"`
-	UserID        string    `json:"user_id"`
+	Subject       string    `json:"subject"`
 	ApplicationID string    `json:"application_id"`
 	Scopes        string    `json:"scopes"`
 	ExpiresAt     time.Time `json:"expires_at"`
@@ -333,7 +333,7 @@ func (q *Queries) InsertRefreshToken(ctx context.Context, arg InsertRefreshToken
 		arg.Token,
 		arg.AuthTime,
 		arg.Audience,
-		arg.UserID,
+		arg.Subject,
 		arg.ApplicationID,
 		arg.Scopes,
 		arg.ExpiresAt,

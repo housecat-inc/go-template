@@ -1,7 +1,7 @@
 -- name: UpsertOAuthToken :exec
-INSERT INTO oauth_tokens (access_token, client_id, expires_at, level, provider, refresh_token, scopes, service, user_id)
+INSERT INTO oauth_tokens (access_token, client_id, expires_at, level, provider, refresh_token, scopes, service, subject)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(user_id, service, level) DO UPDATE SET
+ON CONFLICT(subject, service, level) DO UPDATE SET
     access_token = excluded.access_token,
     client_id = excluded.client_id,
     expires_at = excluded.expires_at,
@@ -11,17 +11,17 @@ ON CONFLICT(user_id, service, level) DO UPDATE SET
 
 -- name: GetOAuthToken :one
 SELECT * FROM oauth_tokens
-WHERE user_id = ? AND service = ? AND level = ?;
+WHERE subject = ? AND service = ? AND level = ?;
 
--- name: ListOAuthTokensByUser :many
+-- name: ListOAuthTokensBySubject :many
 SELECT * FROM oauth_tokens
-WHERE user_id = ?
+WHERE subject = ?
 ORDER BY service, level;
 
 -- name: DeleteOAuthToken :exec
 DELETE FROM oauth_tokens
-WHERE user_id = ? AND service = ? AND level = ?;
+WHERE subject = ? AND service = ? AND level = ?;
 
--- name: DeleteOAuthTokensByUserAndService :exec
+-- name: DeleteOAuthTokensBySubjectAndService :exec
 DELETE FROM oauth_tokens
-WHERE user_id = ? AND service = ?;
+WHERE subject = ? AND service = ?;

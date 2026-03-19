@@ -26,7 +26,7 @@ func (a *AuthRequest) GetRedirectURI() string    { return a.RedirectUri }
 func (a *AuthRequest) GetResponseMode() oidc.ResponseMode { return "" }
 func (a *AuthRequest) GetScopes() []string       { return splitComma(a.Scopes) }
 func (a *AuthRequest) GetState() string           { return a.State }
-func (a *AuthRequest) GetSubject() string         { return a.UserID }
+func (a *AuthRequest) GetSubject() string         { return a.Subject }
 func (a *AuthRequest) Done() bool                 { return a.OidcAuthRequest.Done != 0 }
 
 func (a *AuthRequest) GetAuthTime() time.Time {
@@ -149,7 +149,7 @@ func (r *RefreshToken) GetScopes() []string {
 	}
 	return splitComma(r.Scopes)
 }
-func (r *RefreshToken) GetSubject() string       { return r.UserID }
+func (r *RefreshToken) GetSubject() string       { return r.Subject }
 func (r *RefreshToken) SetCurrentScopes(scopes []string) { r.currentScopes = scopes }
 
 // signingKey implements op.SigningKey.

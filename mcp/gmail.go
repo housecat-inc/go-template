@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -433,9 +434,46 @@ func sanitizeHeader(v string) string {
 	return v
 }
 
+func needsEncoding(s string) bool {
+	for _, r := range s {
+		if r > 126 {
+			return true
+		}
+	}
+	return false
+}
+
+func encodeSubject(subject string) string {
+	if !needsEncoding(subject) {
+		return sanitizeHeader(subject)
+	}
+	return mime.BEncoding.Encode("UTF-8", subject)
+}
+
+func detectContentType(contentType, body string) string {
+	if contentType != "" {
+		return contentType
+	}
+	trimmed := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmed, "<") && strings.Contains(trimmed, "</") {
+		return "text/html"
+	}
+	return "text/plain"
+}
+
+func plainToHTML(body string) string {
+	body = strings.ReplaceAll(body, "&", "&amp;")
+	body = strings.ReplaceAll(body, "<", "&lt;")
+	body = strings.ReplaceAll(body, ">", "&gt;")
+	body = strings.ReplaceAll(body, "\n", "<br>\n")
+	return body
+}
+
 func buildRawMessage(to, subject, body, cc, bcc, contentType string, extraHeaders map[string]string) string {
-	if contentType == "" {
-		contentType = "text/plain"
+	contentType = detectContentType(contentType, body)
+	if contentType == "text/plain" {
+		body = plainToHTML(body)
+		contentType = "text/html"
 	}
 	var buf strings.Builder
 	if bcc != "" {
@@ -448,7 +486,7 @@ func buildRawMessage(to, subject, body, cc, bcc, contentType string, extraHeader
 	for k, v := range extraHeaders {
 		buf.WriteString(sanitizeHeader(k) + ": " + sanitizeHeader(v) + "\r\n")
 	}
-	buf.WriteString("Subject: " + sanitizeHeader(subject) + "\r\n")
+	buf.WriteString("Subject: " + encodeSubject(subject) + "\r\n")
 	buf.WriteString("To: " + sanitizeHeader(to) + "\r\n")
 	buf.WriteString("\r\n")
 	buf.WriteString(body)

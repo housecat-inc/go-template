@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 
 	"github.com/cockroachdb/errors"
 	"github.com/google/uuid"
@@ -124,11 +125,13 @@ var Services = []Service{
 	},
 }
 
-type ConnectionsLookup func(ctx context.Context, userID string) map[string]map[string]bool
+type BrandingLookup func(ctx context.Context, subject string) bool
 
-type TokenLookup func(ctx context.Context, userID, service, level string) (string, error)
+type ConnectionsLookup func(ctx context.Context, subject string) map[string]map[string]bool
 
-func userIDFromRequest(req *gomcp.CallToolRequest) string {
+type TokenLookup func(ctx context.Context, subject, service, level string) (string, error)
+
+func subjectFromRequest(req *gomcp.CallToolRequest) string {
 	if extra := req.GetExtra(); extra != nil && extra.TokenInfo != nil {
 		return extra.TokenInfo.UserID
 	}
@@ -159,13 +162,13 @@ func levelFallback(minLevel string) []string {
 }
 
 func tokenForService(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, service, minLevel string) (string, error) {
-	userID := userIDFromRequest(req)
-	if userID == "" {
+	subject := subjectFromRequest(req)
+	if subject == "" {
 		return "", errors.New("not authenticated")
 	}
 
 	for _, level := range levelFallback(minLevel) {
-		token, err := lookup(ctx, userID, service, level)
+		token, err := lookup(ctx, subject, service, level)
 		if err != nil {
 			if errors.Is(err, ErrTokenNotFound) {
 				continue
@@ -345,7 +348,58 @@ func requestIDMiddleware() gomcp.Middleware {
 	}
 }
 
-func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup, upstreamTools []UpstreamTool) *gomcp.Server {
+func refererFromRequest(req *gomcp.CallToolRequest) string {
+	if extra := req.GetExtra(); extra != nil && extra.TokenInfo != nil {
+		if ref, ok := extra.TokenInfo.Extra["referer"].(string); ok {
+			return ref
+		}
+	}
+	return ""
+}
+
+func ensureScheme(u string) string {
+	if u == "" {
+		return ""
+	}
+	if !strings.Contains(u, "://") {
+		return "https://" + u
+	}
+	return u
+}
+
+func brandingFooter(ctx context.Context, req *gomcp.CallToolRequest, branding BrandingLookup, baseURL, verb, format string) string {
+	if branding == nil {
+		return ""
+	}
+	subject := subjectFromRequest(req)
+	if subject == "" || !branding(ctx, subject) {
+		return ""
+	}
+	link := ensureScheme(refererFromRequest(req))
+	if link == "" {
+		link = ensureScheme(baseURL)
+	}
+	text := verb + " with Housecat"
+	switch format {
+	case "html":
+		if link != "" {
+			return `<br><br><small><a href="` + link + `">` + text + `</a></small>`
+		}
+		return "<br><br><small>" + text + "</small>"
+	case "slack":
+		if link != "" {
+			return "\n\n_<" + link + "|" + text + ">_"
+		}
+		return "\n\n_" + text + "_"
+	default:
+		if link != "" {
+			return "\n\n" + text + " (" + link + ")"
+		}
+		return "\n\n" + text
+	}
+}
+
+func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup, branding BrandingLookup, upstreamTools []UpstreamTool) *gomcp.Server {
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "housecat",
 		Version: "0.1.0",
@@ -476,7 +530,8 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.CreateEvent(ctx, input.CalendarID, input.Summary, input.Description, input.Start, input.End, input.Attendees, input.Location)
+		desc := input.Description + brandingFooter(ctx, req, branding, baseURL, "Created", "html")
+		out, err := client.CreateEvent(ctx, input.CalendarID, input.Summary, desc, input.Start, input.End, input.Attendees, input.Location)
 		if err != nil {
 			return errResult(err.Error())
 		}
@@ -849,9 +904,10 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if err != nil {
 			return errResult(err.Error())
 		}
+		body := input.Body + brandingFooter(ctx, req, branding, baseURL, "Sent", "html")
 		out, err := client.CreateDraft(ctx, CreateDraftIn{
 			Bcc:         input.Bcc,
-			Body:        input.Body,
+			Body:        body,
 			Cc:          input.Cc,
 			ContentType: input.ContentType,
 			Subject:     input.Subject,
@@ -922,9 +978,10 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if err != nil {
 			return errResult(err.Error())
 		}
+		sendBody := input.Body + brandingFooter(ctx, req, branding, baseURL, "Sent", "html")
 		out, err := client.SendMessage(ctx, SendMessageIn{
 			Bcc:         input.Bcc,
-			Body:        input.Body,
+			Body:        sendBody,
 			Cc:          input.Cc,
 			ContentType: input.ContentType,
 			Subject:     input.Subject,
@@ -1482,10 +1539,11 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if err != nil {
 			return errResult(err.Error())
 		}
+		msg := input.Message + brandingFooter(ctx, req, branding, baseURL, "Sent", "slack")
 		out, err := client.SendMessage(ctx, SlackSendMessageIn{
 			ChannelID:      input.ChannelID,
 			DraftID:        input.DraftID,
-			Message:        input.Message,
+			Message:        msg,
 			ReplyBroadcast: input.ReplyBroadcast,
 			ThreadTS:       input.ThreadTS,
 		})
@@ -1514,9 +1572,10 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if err != nil {
 			return errResult(err.Error())
 		}
+		draftMsg := input.Message + brandingFooter(ctx, req, branding, baseURL, "Sent", "slack")
 		out, err := client.SendMessageDraft(ctx, SlackSendMessageDraftIn{
 			ChannelID: input.ChannelID,
-			Message:   input.Message,
+			Message:   draftMsg,
 			ThreadTS:  input.ThreadTS,
 		})
 		if err != nil {
@@ -1549,9 +1608,10 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if err != nil {
 			return errResult(err.Error())
 		}
+		schedMsg := input.Message + brandingFooter(ctx, req, branding, baseURL, "Sent", "slack")
 		out, err := client.ScheduleMessage(ctx, SlackScheduleMessageIn{
 			ChannelID:      input.ChannelID,
-			Message:        input.Message,
+			Message:        schedMsg,
 			PostAt:         input.PostAt,
 			ReplyBroadcast: input.ReplyBroadcast,
 			ThreadTS:       input.ThreadTS,
@@ -1580,8 +1640,9 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if err != nil {
 			return errResult(err.Error())
 		}
+		canvasContent := input.Content + brandingFooter(ctx, req, branding, baseURL, "Created", "slack")
 		out, err := client.CreateCanvas(ctx, CreateCanvasIn{
-			Content: input.Content,
+			Content: canvasContent,
 			Title:   input.Title,
 		})
 		if err != nil {

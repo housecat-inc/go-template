@@ -60,7 +60,7 @@ func TestRequireAdmin(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/admin/vms", nil)
 		w := httptest.NewRecorder()
 		c := e.NewContext(req, w)
-		c.Set("userID", "admin-user")
+		c.Set("subject", "admin-user")
 		c.Set("userEmail", "admin@housecat.com")
 		c.Set("logoutURL", "/auth/logout")
 		c.Set("provider", "Google")

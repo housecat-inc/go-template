@@ -30,7 +30,7 @@ type OauthToken struct {
 	RefreshToken string     `json:"refresh_token"`
 	Scopes       string     `json:"scopes"`
 	Service      string     `json:"service"`
-	UserID       string     `json:"user_id"`
+	Subject      string     `json:"subject"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	ClientID     string     `json:"client_id"`
@@ -56,7 +56,7 @@ type OidcAuthRequest struct {
 	ResponseType        string     `json:"response_type"`
 	CodeChallenge       string     `json:"code_challenge"`
 	CodeChallengeMethod string     `json:"code_challenge_method"`
-	UserID              string     `json:"user_id"`
+	Subject             string     `json:"subject"`
 	UserEmail           string     `json:"user_email"`
 	AuthTime            *time.Time `json:"auth_time"`
 	Done                int64      `json:"done"`
@@ -95,7 +95,7 @@ type OidcRefreshToken struct {
 	Token         string    `json:"token"`
 	AuthTime      time.Time `json:"auth_time"`
 	Audience      string    `json:"audience"`
-	UserID        string    `json:"user_id"`
+	Subject       string    `json:"subject"`
 	ApplicationID string    `json:"application_id"`
 	Scopes        string    `json:"scopes"`
 	ExpiresAt     time.Time `json:"expires_at"`
@@ -104,9 +104,16 @@ type OidcRefreshToken struct {
 
 type Session struct {
 	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
+	Subject   string    `json:"subject"`
 	Email     string    `json:"email"`
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Provider  string    `json:"provider"`
+}
+
+type UserSetting struct {
+	Subject   string    `json:"subject"`
+	Settings  string    `json:"settings"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

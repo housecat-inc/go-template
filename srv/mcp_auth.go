@@ -43,12 +43,18 @@ func (s *Server) verifyMCPToken(ctx context.Context, token string, req *http.Req
 		return nil, fmt.Errorf("token expired: use refresh_token to obtain a new access token: %w", mcpauth.ErrInvalidToken)
 	}
 
-	email, _ := q.GetEmailByUserID(ctx, row.Subject)
+	email, _ := q.GetEmailBySubject(ctx, row.Subject)
+
+	extra := map[string]any{"email": email}
+	if ref := req.Header.Get("Referer"); ref != "" {
+		extra["referer"] = ref
+	}
+	slog.Info("mcp auth ok", "user", row.Subject, "email", email, "referer", req.Header.Get("Referer"), "origin", req.Header.Get("Origin"), "user_agent", req.Header.Get("User-Agent"))
 
 	scopes := strings.Split(row.Scopes, ",")
 	return &mcpauth.TokenInfo{
 		Expiration: row.ExpiresAt,
-		Extra:      map[string]any{"email": email},
+		Extra:      extra,
 		Scopes:     scopes,
 		UserID:     row.Subject,
 	}, nil

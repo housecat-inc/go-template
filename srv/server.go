@@ -169,6 +169,8 @@ func (s *Server) Serve(addr string) error {
 	e.GET("/connect/:service/enable/:level", s.HandleConnectEnable, s.RequireAuth)
 	e.POST("/connect/:service/disconnect/:level", s.HandleConnectDisconnect, s.RequireAuth)
 
+	e.GET("/settings", s.HandleSettings, s.RequireAuth)
+	e.POST("/settings", s.HandleSettingsUpdate, s.RequireAuth)
 	e.GET("/profile", s.HandleProfile, s.RequireAuth)
 	e.GET("/auth/exedev", s.HandleAuthExeDev)
 	if s.oauth2Config != nil {
@@ -220,7 +222,7 @@ func (s *Server) Serve(addr string) error {
 		if err != nil {
 			return "", "", err
 		}
-		return sess.UserID, sess.Email, nil
+		return sess.Subject, sess.Email, nil
 	}))
 
 	// OAuth Protected Resource Metadata (RFC 9728) for MCP
@@ -250,13 +252,13 @@ func (s *Server) Serve(addr string) error {
 
 	mcpServer := hcmcp.NewServer(
 		"https://"+s.Hostname,
-		func(ctx context.Context, userID, service, level string) (string, error) {
+		func(ctx context.Context, subject, service, level string) (string, error) {
 			if s.DB == nil {
 				return "", errors.New("database not configured")
 			}
 			q := dbgen.New(s.DB)
 			tok, err := q.GetOAuthToken(ctx, dbgen.GetOAuthTokenParams{
-				UserID:  userID,
+				Subject: subject,
 				Service: service,
 				Level:   level,
 			})
@@ -269,7 +271,7 @@ func (s *Server) Serve(addr string) error {
 			if tok.ExpiresAt != nil && tok.ExpiresAt.Before(time.Now().Add(30*time.Second)) && tok.RefreshToken != "" {
 				refreshed, err := s.refreshOAuthToken(ctx, tok)
 				if err != nil {
-					slog.Warn("oauth token refresh failed", "service", service, "level", level, "user", userID, "error", err)
+					slog.Warn("oauth token refresh failed", "service", service, "level", level, "subject", subject, "error", err)
 					return tok.AccessToken, nil
 				}
 				return refreshed, nil
@@ -277,7 +279,18 @@ func (s *Server) Serve(addr string) error {
 			return tok.AccessToken, nil
 		},
 		func(ctx context.Context, userID string) map[string]map[string]bool {
-			return s.connectedLevelsForUser(ctx, userID)
+			return s.connectedLevelsForSubject(ctx, userID)
+		},
+		func(ctx context.Context, subject string) bool {
+			if s.DB == nil {
+				return true
+			}
+			q := dbgen.New(s.DB)
+			row, err := q.GetUserSettings(ctx, subject)
+			if err != nil {
+				return DefaultSettings.BrandingFooter
+			}
+			return parseSettings(row.Settings).BrandingFooter
 		},
 		hcmcp.DefaultUpstreamTools(),
 	)
@@ -331,7 +344,7 @@ func (s *Server) HandleRoot(c echo.Context) error {
 func (s *Server) HandleProfile(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 	logoutURL := c.Get("logoutURL").(string)
 	provider := c.Get("provider").(string)
@@ -345,16 +358,16 @@ func (s *Server) HandleProfile(c echo.Context) error {
 		q := dbgen.New(s.DB)
 
 		_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
-			ActorID:   userID,
+			ActorID:   subject,
 			ActorType: "user",
 			Action:    "page_view",
 		})
 
-		if n, err := q.CountActivitiesByActor(ctx, userID); err == nil {
+		if n, err := q.CountActivitiesByActor(ctx, subject); err == nil {
 			activityCount = n
 		}
 
-		count, err := q.CountSessionsByUser(ctx, userID)
+		count, err := q.CountSessionsBySubject(ctx, subject)
 		if err == nil {
 			sessionCount = count
 		}
@@ -366,7 +379,7 @@ func (s *Server) HandleProfile(c echo.Context) error {
 		}
 
 		dbActivities, err := q.ListActivitiesByActor(ctx, dbgen.ListActivitiesByActorParams{
-			ActorID: userID,
+			ActorID: subject,
 			Limit:   10,
 		})
 		if err == nil {
@@ -391,8 +404,8 @@ func (s *Server) HandleProfile(c echo.Context) error {
 		Provider:      provider,
 		SessionCount:  sessionCount,
 		SessionStart:  sessionStart,
+		Subject:       subject,
 		UserEmail:     userEmail,
-		UserID:        userID,
 	}
 
 	component := pages.Profile(data, isAdminWithProvider(userEmail, provider))

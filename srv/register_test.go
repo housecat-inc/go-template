@@ -32,7 +32,7 @@ func TestHandleRegistrationToken(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/admin/clients/registration-token", nil)
 		w := httptest.NewRecorder()
 		c := e.NewContext(req, w)
-		c.Set("userID", "admin")
+		c.Set("subject", "admin")
 
 		r := require.New(t)
 		r.NoError(server.HandleRegistrationToken(c))
@@ -84,7 +84,7 @@ func TestHandleRegister(t *testing.T) {
 		tokenReq := httptest.NewRequest(http.MethodPost, "/admin/clients/registration-token", nil)
 		tokenW := httptest.NewRecorder()
 		tokenC := e.NewContext(tokenReq, tokenW)
-		tokenC.Set("userID", "admin")
+		tokenC.Set("subject", "admin")
 		r.NoError(server.HandleRegistrationToken(tokenC))
 
 		var tokenResp map[string]any
@@ -117,7 +117,7 @@ func TestHandleRegister(t *testing.T) {
 		tokenReq := httptest.NewRequest(http.MethodPost, "/admin/clients/registration-token", nil)
 		tokenW := httptest.NewRecorder()
 		tokenC := e.NewContext(tokenReq, tokenW)
-		tokenC.Set("userID", "admin")
+		tokenC.Set("subject", "admin")
 		r.NoError(server.HandleRegistrationToken(tokenC))
 
 		var tokenResp map[string]any
@@ -152,7 +152,7 @@ func TestHandleRegister(t *testing.T) {
 		tokenReq := httptest.NewRequest(http.MethodPost, "/admin/clients/registration-token", nil)
 		tokenW := httptest.NewRecorder()
 		tokenC := e.NewContext(tokenReq, tokenW)
-		tokenC.Set("userID", "admin")
+		tokenC.Set("subject", "admin")
 		r.NoError(server.HandleRegistrationToken(tokenC))
 
 		var tokenResp map[string]any
@@ -176,7 +176,7 @@ func TestHandleRegister(t *testing.T) {
 		tokenReq := httptest.NewRequest(http.MethodPost, "/admin/clients/registration-token", nil)
 		tokenW := httptest.NewRecorder()
 		tokenC := e.NewContext(tokenReq, tokenW)
-		tokenC.Set("userID", "admin")
+		tokenC.Set("subject", "admin")
 		r.NoError(server.HandleRegistrationToken(tokenC))
 
 		var tokenResp map[string]any
@@ -201,7 +201,7 @@ func registerClient(t *testing.T, server *Server, e *echo.Echo, body string) (in
 	tokenReq := httptest.NewRequest(http.MethodPost, "/admin/clients/registration-token", nil)
 	tokenW := httptest.NewRecorder()
 	tokenC := e.NewContext(tokenReq, tokenW)
-	tokenC.Set("userID", "admin")
+	tokenC.Set("subject", "admin")
 	r.NoError(server.HandleRegistrationToken(tokenC))
 
 	var tokenResp map[string]any

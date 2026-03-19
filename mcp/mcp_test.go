@@ -10,8 +10,8 @@ import (
 )
 
 func stubLookup(tokens map[string]string) TokenLookup {
-	return func(ctx context.Context, userID, service, level string) (string, error) {
-		key := userID + ":" + service + ":" + level
+	return func(ctx context.Context, subject, service, level string) (string, error) {
+		key := subject + ":" + service + ":" + level
 		if tok, ok := tokens[key]; ok {
 			return tok, nil
 		}
@@ -23,7 +23,7 @@ func TestConnections(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -103,7 +103,7 @@ func TestGmailToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -127,7 +127,7 @@ func TestGCalToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -151,7 +151,7 @@ func TestGDriveToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -178,7 +178,7 @@ func TestAttioToolsRequireAuth(t *testing.T) {
 	upstreamTools := []UpstreamTool{
 		{Service: "attio", Name: "search-records", Description: "Search records", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
 	}
-	server := NewServer("https://example.com", stubLookup(nil), nil, upstreamTools)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil, upstreamTools)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -204,7 +204,7 @@ func TestGranolaToolsRequireAuth(t *testing.T) {
 	upstreamTools := []UpstreamTool{
 		{Service: "granola", Name: "list_meetings", Description: "List meetings", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
 	}
-	server := NewServer("https://example.com", stubLookup(nil), nil, upstreamTools)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil, upstreamTools)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -230,7 +230,7 @@ func TestNotionToolsRequireAuth(t *testing.T) {
 	upstreamTools := []UpstreamTool{
 		{Service: "notion", Name: "notion-search", Description: "Search Notion", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
 	}
-	server := NewServer("https://example.com", stubLookup(nil), nil, upstreamTools)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil, upstreamTools)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)
@@ -253,7 +253,7 @@ func TestSlackToolsRequireAuth(t *testing.T) {
 	a := assert.New(t)
 	ctx := context.Background()
 
-	server := NewServer("https://example.com", stubLookup(nil), nil, nil)
+	server := NewServer("https://example.com", stubLookup(nil), nil, nil, nil)
 	clientTransport, serverTransport := gomcp.NewInMemoryTransports()
 
 	_, err := server.Connect(ctx, serverTransport, nil)

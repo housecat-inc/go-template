@@ -51,13 +51,13 @@ func buildIntegrations(services []mcp.Service, connectedLevels map[string]map[st
 }
 
 
-func (s *Server) connectedLevelsForUser(ctx context.Context, userID string) map[string]map[string]bool {
+func (s *Server) connectedLevelsForSubject(ctx context.Context, subject string) map[string]map[string]bool {
 	out := make(map[string]map[string]bool)
 	if s.DB == nil {
 		return out
 	}
 	q := dbgen.New(s.DB)
-	tokens, err := q.ListOAuthTokensByUser(ctx, userID)
+	tokens, err := q.ListOAuthTokensBySubject(ctx, subject)
 	if err != nil {
 		return out
 	}
@@ -73,19 +73,19 @@ func (s *Server) connectedLevelsForUser(ctx context.Context, userID string) map[
 func (s *Server) HandleHome(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 	logoutURL := c.Get("logoutURL").(string)
 	provider := c.Get("provider").(string)
 
-	connectedLevels := s.connectedLevelsForUser(ctx, userID)
+	connectedLevels := s.connectedLevelsForSubject(ctx, subject)
 	integrations := buildIntegrations(mcp.Services, connectedLevels)
 
 	var activities []pages.ActivityEntry
 	if s.DB != nil {
 		q := dbgen.New(s.DB)
 		dbActivities, err := q.ListActivitiesByActorAndObjectType(ctx, dbgen.ListActivitiesByActorAndObjectTypeParams{
-			ActorID:    userID,
+			ActorID:    subject,
 			ObjectType: "integration",
 			Limit:      10,
 		})
@@ -121,7 +121,7 @@ func buildIntegration(svc mcp.Service, connectedLevels map[string]bool) pages.In
 func (s *Server) HandleConnect(c echo.Context) error {
 	r := c.Request()
 	ctx := r.Context()
-	userID := c.Get("userID").(string)
+	subject := c.Get("subject").(string)
 	userEmail := c.Get("userEmail").(string)
 	logoutURL := c.Get("logoutURL").(string)
 	provider := c.Get("provider").(string)
@@ -132,7 +132,7 @@ func (s *Server) HandleConnect(c echo.Context) error {
 		return echo.NewHTTPError(404, "unknown service")
 	}
 
-	connectedLevels := s.connectedLevelsForUser(ctx, userID)
+	connectedLevels := s.connectedLevelsForSubject(ctx, subject)
 
 	justConnected := c.QueryParam("connected") == "1"
 	externalFlow := false

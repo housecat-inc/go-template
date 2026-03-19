@@ -18,8 +18,8 @@ type PageData struct {
 	Provider      string
 	SessionCount  int64
 	SessionStart  time.Time
+	Subject       string
 	UserEmail     string
-	UserID        string
 }
 
 type ActivityEntry struct {
@@ -81,7 +81,7 @@ templ Profile(data PageData, isAdmin bool) {
 							</div>
 							<div class="flex justify-between">
 								<dt class="text-muted-foreground">User ID</dt>
-								<dd class="font-mono text-xs">{ data.UserID }</dd>
+								<dd class="font-mono text-xs">{ data.Subject }</dd>
 							</div>
 							<div class="flex justify-between">
 								<dt class="text-muted-foreground">Provider</dt>
