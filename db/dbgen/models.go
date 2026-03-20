@@ -61,6 +61,7 @@ type OidcAuthRequest struct {
 	AuthTime            *time.Time `json:"auth_time"`
 	Done                int64      `json:"done"`
 	CreatedAt           time.Time  `json:"created_at"`
+	LoginHint           string     `json:"login_hint"`
 }
 
 type OidcClient struct {

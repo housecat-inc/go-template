@@ -8,6 +8,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/zitadel/oidc/v3/pkg/op"
+
+	"github.com/housecat-inc/auth/ui/blocks/auth"
 )
 
 // SessionResolver looks up the current user session.
@@ -25,11 +27,25 @@ func LoginHandler(storage *Storage, provider op.OpenIDProvider, resolveSession S
 			return echo.NewHTTPError(http.StatusBadRequest, "authRequestID required")
 		}
 
+		authReq, err := storage.AuthRequestByID(r.Context(), authRequestID)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid auth request")
+		}
+
+		loginHint := ""
+		if ar, ok := authReq.(*AuthRequest); ok {
+			loginHint = ar.GetLoginHint()
+		}
+
 		userID, email, err := resolveSession(r)
 		if err != nil {
 			if isLoopbackRequest(r) {
 				userID = "browser-tool"
 				email = "tool@localhost"
+			} else if loginHint == "app" {
+				returnURL := r.URL.String()
+				googleURL := "/auth/google?redirect=" + url.QueryEscape(returnURL)
+				return auth.AppLoginPage(googleURL).Render(r.Context(), c.Response())
 			} else {
 				returnURL := r.URL.String()
 				loginURL := "/?redirect=" + url.QueryEscape(returnURL)
@@ -37,12 +53,7 @@ func LoginHandler(storage *Storage, provider op.OpenIDProvider, resolveSession S
 			}
 		}
 
-		authReq, err := storage.AuthRequestByID(r.Context(), authRequestID)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "invalid auth request")
-		}
-
-		if !isLoopbackRequest(r) {
+		if !isLoopbackRequest(r) && loginHint != "app" {
 			client, err := storage.q().GetOidcClientByClientID(r.Context(), authReq.GetClientID())
 			if err != nil {
 				return echo.NewHTTPError(http.StatusBadRequest, "unknown client")

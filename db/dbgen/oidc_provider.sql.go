@@ -130,7 +130,7 @@ func (q *Queries) GetAccessToken(ctx context.Context, id string) (OidcAccessToke
 }
 
 const getAuthRequest = `-- name: GetAuthRequest :one
-SELECT id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method, subject, user_email, auth_time, done, created_at FROM oidc_auth_requests WHERE id = ?
+SELECT id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method, subject, user_email, auth_time, done, created_at, login_hint FROM oidc_auth_requests WHERE id = ?
 `
 
 func (q *Queries) GetAuthRequest(ctx context.Context, id string) (OidcAuthRequest, error) {
@@ -151,12 +151,13 @@ func (q *Queries) GetAuthRequest(ctx context.Context, id string) (OidcAuthReques
 		&i.AuthTime,
 		&i.Done,
 		&i.CreatedAt,
+		&i.LoginHint,
 	)
 	return i, err
 }
 
 const getAuthRequestByCode = `-- name: GetAuthRequestByCode :one
-SELECT r.id, r.client_id, r.redirect_uri, r.scopes, r.state, r.nonce, r.response_type, r.code_challenge, r.code_challenge_method, r.subject, r.user_email, r.auth_time, r.done, r.created_at FROM oidc_auth_requests r
+SELECT r.id, r.client_id, r.redirect_uri, r.scopes, r.state, r.nonce, r.response_type, r.code_challenge, r.code_challenge_method, r.subject, r.user_email, r.auth_time, r.done, r.created_at, r.login_hint FROM oidc_auth_requests r
 JOIN oidc_codes c ON c.auth_request_id = r.id
 WHERE c.code = ?
 `
@@ -179,12 +180,13 @@ func (q *Queries) GetAuthRequestByCode(ctx context.Context, code string) (OidcAu
 		&i.AuthTime,
 		&i.Done,
 		&i.CreatedAt,
+		&i.LoginHint,
 	)
 	return i, err
 }
 
 const getLatestAuthRequestBySubjectAndClient = `-- name: GetLatestAuthRequestBySubjectAndClient :one
-SELECT id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method, subject, user_email, auth_time, done, created_at FROM oidc_auth_requests
+SELECT id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method, subject, user_email, auth_time, done, created_at, login_hint FROM oidc_auth_requests
 WHERE subject = ? AND client_id = ? AND done = 1
 ORDER BY created_at DESC
 LIMIT 1
@@ -213,6 +215,7 @@ func (q *Queries) GetLatestAuthRequestBySubjectAndClient(ctx context.Context, ar
 		&i.AuthTime,
 		&i.Done,
 		&i.CreatedAt,
+		&i.LoginHint,
 	)
 	return i, err
 }
@@ -280,33 +283,35 @@ func (q *Queries) InsertAuthCode(ctx context.Context, arg InsertAuthCodeParams) 
 }
 
 const insertAuthRequest = `-- name: InsertAuthRequest :exec
-INSERT INTO oidc_auth_requests (id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO oidc_auth_requests (id, client_id, code_challenge, code_challenge_method, login_hint, nonce, redirect_uri, response_type, scopes, state)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertAuthRequestParams struct {
 	ID                  string `json:"id"`
 	ClientID            string `json:"client_id"`
-	RedirectUri         string `json:"redirect_uri"`
-	Scopes              string `json:"scopes"`
-	State               string `json:"state"`
-	Nonce               string `json:"nonce"`
-	ResponseType        string `json:"response_type"`
 	CodeChallenge       string `json:"code_challenge"`
 	CodeChallengeMethod string `json:"code_challenge_method"`
+	LoginHint           string `json:"login_hint"`
+	Nonce               string `json:"nonce"`
+	RedirectUri         string `json:"redirect_uri"`
+	ResponseType        string `json:"response_type"`
+	Scopes              string `json:"scopes"`
+	State               string `json:"state"`
 }
 
 func (q *Queries) InsertAuthRequest(ctx context.Context, arg InsertAuthRequestParams) error {
 	_, err := q.db.ExecContext(ctx, insertAuthRequest,
 		arg.ID,
 		arg.ClientID,
-		arg.RedirectUri,
-		arg.Scopes,
-		arg.State,
-		arg.Nonce,
-		arg.ResponseType,
 		arg.CodeChallenge,
 		arg.CodeChallengeMethod,
+		arg.LoginHint,
+		arg.Nonce,
+		arg.RedirectUri,
+		arg.ResponseType,
+		arg.Scopes,
+		arg.State,
 	)
 	return err
 }

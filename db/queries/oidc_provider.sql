@@ -1,6 +1,6 @@
 -- name: InsertAuthRequest :exec
-INSERT INTO oidc_auth_requests (id, client_id, redirect_uri, scopes, state, nonce, response_type, code_challenge, code_challenge_method)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO oidc_auth_requests (id, client_id, code_challenge, code_challenge_method, login_hint, nonce, redirect_uri, response_type, scopes, state)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetAuthRequest :one
 SELECT * FROM oidc_auth_requests WHERE id = ?;

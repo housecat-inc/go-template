@@ -51,13 +51,14 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthReque
 	err := s.q().InsertAuthRequest(ctx, dbgen.InsertAuthRequestParams{
 		ID:                  id,
 		ClientID:            authReq.ClientID,
-		RedirectUri:         authReq.RedirectURI,
-		Scopes:              strings.Join(authReq.Scopes, ","),
-		State:               authReq.State,
-		Nonce:               authReq.Nonce,
-		ResponseType:        string(authReq.ResponseType),
 		CodeChallenge:       challenge,
 		CodeChallengeMethod: challengeMethod,
+		LoginHint:           authReq.LoginHint,
+		Nonce:               authReq.Nonce,
+		RedirectUri:         authReq.RedirectURI,
+		ResponseType:        string(authReq.ResponseType),
+		Scopes:              strings.Join(authReq.Scopes, ","),
+		State:               authReq.State,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "insert auth request")

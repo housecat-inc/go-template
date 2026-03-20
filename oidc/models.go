@@ -21,6 +21,7 @@ func (a *AuthRequest) GetACR() string            { return "" }
 func (a *AuthRequest) GetAMR() []string          { return nil }
 func (a *AuthRequest) GetAudience() []string     { return []string{a.ClientID} }
 func (a *AuthRequest) GetClientID() string       { return a.ClientID }
+func (a *AuthRequest) GetLoginHint() string      { return a.LoginHint }
 func (a *AuthRequest) GetNonce() string           { return a.Nonce }
 func (a *AuthRequest) GetRedirectURI() string    { return a.RedirectUri }
 func (a *AuthRequest) GetResponseMode() oidc.ResponseMode { return "" }
