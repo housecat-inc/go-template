@@ -78,6 +78,8 @@ Data Access
   - auth/gmail.readonly
   - auth/gmail.compose
   - auth/gmail.send
+  - auth/gmail.labels
+  - auth/gmail.modify
 - [GCal API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=housecat-staging-v0)
   - auth/calendar.readonly
   - auth/calendar

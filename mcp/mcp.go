@@ -84,7 +84,7 @@ var Services = []Service{
 		Connections: []Connection{
 			{Level: "read", Description: "Get emails and threads", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}},
 			{Level: "draft", Description: "Create draft emails for review", Scopes: []string{"https://www.googleapis.com/auth/gmail.compose"}},
-			{Level: "write", Description: "Send emails on your behalf", Scopes: []string{"https://www.googleapis.com/auth/gmail.send"}},
+			{Level: "write", Description: "Send emails and manage labels", Scopes: []string{"https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.labels", "https://www.googleapis.com/auth/gmail.modify"}},
 		},
 	},
 	{
