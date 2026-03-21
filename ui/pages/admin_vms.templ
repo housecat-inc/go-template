@@ -40,11 +40,19 @@ func shortTime(t time.Time) string {
 	}
 }
 
-func countEmails(s string) int {
+func firstEmail(s string) string {
+	if s == "" {
+		return ""
+	}
+	e, _, _ := strings.Cut(s, ",")
+	return e
+}
+
+func extraEmails(s string) int {
 	if s == "" {
 		return 0
 	}
-	return len(strings.Split(s, ","))
+	return len(strings.Split(s, ",")) - 1
 }
 
 type VMCreator struct {
@@ -53,8 +61,10 @@ type VMCreator struct {
 }
 
 type VMClientInfo struct {
-	AllowedDomain string
-	AllowedEmails string
+	AllowedDomain   string
+	AllowedEmails   string
+	HasCustomDomain bool
+	ID              int64
 }
 
 type AdminVMsData struct {
@@ -264,11 +274,19 @@ templ adminVMItem(vm exedev.VM, creator VMCreator, client VMClientInfo) {
 					}
 				</div>
 				<p class="text-sm text-muted-foreground truncate">
-					if client.AllowedDomain != "" || client.AllowedEmails != "" {
-						Access: { client.AllowedDomain }
-						if countEmails(client.AllowedEmails) > 0 {
-							{ fmt.Sprintf("+%d", countEmails(client.AllowedEmails)) }
-						}
+					if client.ID > 0 {
+						<a href={ templ.SafeURL(fmt.Sprintf("/admin/clients/%d", client.ID)) } class="hover:text-foreground underline underline-offset-2">
+							if firstEmail(client.AllowedEmails) != "" {
+								{ firstEmail(client.AllowedEmails) }
+								if extraEmails(client.AllowedEmails) > 0 {
+									{ fmt.Sprintf("+%d", extraEmails(client.AllowedEmails)) }
+								}
+							} else if client.AllowedDomain != "" {
+								{ client.AllowedDomain }
+							} else {
+								open
+							}
+						</a>
 						 ·
 					}
 					Created by: { emailFirstName(creator.Email) } { shortTime(creator.CreatedAt) }
@@ -277,7 +295,9 @@ templ adminVMItem(vm exedev.VM, creator VMCreator, client VMClientInfo) {
 		</div>
 		<div class="flex items-center gap-2 flex-shrink-0">
 			<div class="flex items-center gap-1 text-sm">
-				if vm.ShareStatus == "public" {
+				if client.HasCustomDomain {
+					<a href={ templ.SafeURL("https://" + vm.Name + ".vm.housecat.io") } target="_blank" class="text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-accent" title="Open App">App</a>
+				} else if vm.ShareStatus == "public" {
 					<a href={ templ.SafeURL(vm.HTTPSURL) } target="_blank" class="text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-accent" title="Open App">App</a>
 				} else {
 					<a href={ templ.SafeURL("/admin/open?url=" + url.QueryEscape(vm.HTTPSURL)) } target="_blank" class="text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-accent" title="Open App">App</a>

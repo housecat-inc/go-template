@@ -18,6 +18,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/housecat-inc/auth/assets"
+	"github.com/housecat-inc/auth/gcpdns"
 	hcmcp "github.com/housecat-inc/auth/mcp"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -43,6 +44,7 @@ type ServiceOAuthConfig struct {
 
 type Server struct {
 	DB     *sql.DB
+	DNS    *gcpdns.Client
 	ExeDev *exedev.Client
 	GitProxy *gh.Proxy
 	Hostname          string

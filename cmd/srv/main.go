@@ -13,6 +13,7 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/lmittmann/tint"
 
+	"github.com/housecat-inc/auth/gcpdns"
 	"github.com/housecat-inc/auth/gh"
 	"github.com/housecat-inc/auth/srv"
 )
@@ -60,6 +61,16 @@ func run() error {
 	server.SlackOAuth = srv.ServiceOAuthConfig{
 		ClientID:     os.Getenv("SLACK_CLIENT_ID"),
 		ClientSecret: os.Getenv("SLACK_CLIENT_SECRET"),
+	}
+
+	if saKeyPath := os.Getenv("GCP_DNS_SA_KEY_PATH"); saKeyPath != "" {
+		dnsClient, err := gcpdns.New(saKeyPath, os.Getenv("GCP_DNS_PROJECT"), os.Getenv("GCP_DNS_ZONE"))
+		if err != nil {
+			slog.Warn("dns client disabled", "error", err)
+		} else {
+			server.DNS = dnsClient
+			slog.Info("dns client configured", "project", os.Getenv("GCP_DNS_PROJECT"), "zone", os.Getenv("GCP_DNS_ZONE"))
+		}
 	}
 
 	if pemPath := os.Getenv("GH_APP_PEM_PATH"); pemPath != "" {

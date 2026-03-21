@@ -117,8 +117,10 @@ func (s *Server) HandleAdminVMs(c echo.Context) error {
 		if rows, err := q.ListOidcClients(ctx); err == nil {
 			for _, c := range rows {
 				clients[c.Name] = pages.VMClientInfo{
-					AllowedDomain: c.AllowedDomain,
-					AllowedEmails: c.AllowedEmails,
+					AllowedDomain:   c.AllowedDomain,
+					AllowedEmails:   c.AllowedEmails,
+					HasCustomDomain: strings.Contains(c.RedirectUris, ".vm.housecat.io"),
+					ID:              c.ID,
 				}
 			}
 		}
@@ -210,6 +212,12 @@ func (s *Server) HandleAdminNewVM(c echo.Context) error {
 
 	slog.Info("vm created", "name", result.Name, "app", app, "user", userEmail)
 
+	if s.DNS != nil {
+		if err := s.DNS.CreateCNAME(ctx, result.Name); err != nil {
+			slog.Error("dns create cname", "vm", result.Name, "error", err)
+		}
+	}
+
 	meta := userEmail + " (" + app + ")"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 		ActorID:    subject,
@@ -221,7 +229,14 @@ func (s *Server) HandleAdminNewVM(c echo.Context) error {
 	})
 
 	issue := s.issuerURL(r)
-	prompt := buildVMPrompt(issue, token, app)
+	repo := "housecat-inc/" + app
+	registerRef := "main"
+	if s.GitProxy != nil {
+		if sha, err := s.GitProxy.ResolveBranch(ctx, "housecat-inc/go-template", "main"); err == nil {
+			registerRef = sha
+		}
+	}
+	prompt := buildVMPrompt(issue, token, repo, registerRef)
 
 	s.vmSetups.Store(result.Name, &vmSetup{ShelleyURL: result.ShelleyURL})
 
@@ -335,6 +350,12 @@ func (s *Server) HandleAdminDeleteVM(c echo.Context) error {
 		return errors.Wrap(err, "delete vm")
 	}
 
+	if s.DNS != nil {
+		if err := s.DNS.DeleteCNAME(ctx, vmName); err != nil {
+			slog.Error("dns delete cname", "vm", vmName, "error", err)
+		}
+	}
+
 	if s.DB != nil {
 		q := dbgen.New(s.DB)
 		_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
@@ -377,26 +398,14 @@ func (s *Server) HandleAdminToggleShare(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/admin/vms")
 }
 
-func buildVMPrompt(issuerURL, token, app string) string {
+func buildVMPrompt(issuerURL, token, repo, registerRef string) string {
 	u, _ := url.Parse(issuerURL)
 	u.User = url.User(token)
 	registerURL := u.String() + "/api/register"
-	repo := "housecat-inc/" + app
 
-	return fmt.Sprintf(`Register this VM and set up the app:
-
-go install github.com/housecat-inc/go-template/cmd/register@main
+	return fmt.Sprintf(`go install github.com/housecat-inc/go-template/cmd/register@%s
 ~/go/bin/register %s %s@main
-
-This will:
-1. Register this VM as an OIDC client with the auth service
-2. Set up the git proxy for GitHub access
-3. Clone %s (main branch) into ~/%s
-4. Build and install the service
-5. Write .env and start the systemd service
-
-After running, restart your shell to pick up the proxy environment variables.
-`, registerURL, repo, repo, app)
+`, registerRef, registerURL, repo)
 }
 
 func (s *Server) HandleResolveBranch(c echo.Context) error {

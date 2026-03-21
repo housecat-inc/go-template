@@ -32,6 +32,7 @@ type ClientRegistrationResponse struct {
 	ClientID                string   `json:"client_id"`
 	ClientSecret            string   `json:"client_secret"`
 	ClientName              string   `json:"client_name"`
+	Hostname                string   `json:"hostname"`
 	RedirectURIs            []string `json:"redirect_uris"`
 	GrantTypes              []string `json:"grant_types"`
 	ResponseTypes           []string `json:"response_types"`
@@ -107,6 +108,19 @@ func (s *Server) HandleRegister(c echo.Context) error {
 				ErrorDescription: "invalid redirect URI: " + uri,
 			})
 		}
+	}
+
+	customHostname := req.ClientName + ".vm.housecat.io"
+	customCallback := "https://" + customHostname + "/auth/callback"
+	hasCustom := false
+	for _, uri := range req.RedirectURIs {
+		if uri == customCallback {
+			hasCustom = true
+			break
+		}
+	}
+	if !hasCustom {
+		req.RedirectURIs = append(req.RedirectURIs, customCallback)
 	}
 
 	// RFC 7591 defaults
@@ -206,6 +220,7 @@ func (s *Server) HandleRegister(c echo.Context) error {
 		ClientID:                client.ClientID,
 		ClientSecret:            client.ClientSecret,
 		ClientName:              client.Name,
+		Hostname:                customHostname,
 		RedirectURIs:            req.RedirectURIs,
 		GrantTypes:              req.GrantTypes,
 		ResponseTypes:           req.ResponseTypes,
