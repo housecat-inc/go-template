@@ -409,7 +409,7 @@ func primeCert(appURL string) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // lgtm[go/disabled-certificate-check] first request triggers certificate provisioning
 		},
 	}
 	resp, err := client.Get(appURL)
