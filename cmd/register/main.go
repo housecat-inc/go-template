@@ -81,11 +81,11 @@ func run() error {
 
 	// Register client via RFC 7591
 	stepStart = time.Now()
-	clientID, clientSecret, scope, err := registerClient(token, endpoint, appName)
+	clientID, clientSecret, customHostname, scope, err := registerClient(token, endpoint, appName)
 	if err != nil {
 		return fmt.Errorf("register client: %w", err)
 	}
-	logger.Info("registered client", "client_id", clientID, "scope", scope, "duration", time.Since(stepStart))
+	logger.Info("registered client", "client_id", clientID, "hostname", customHostname, "scope", scope, "duration", time.Since(stepStart))
 
 	// Generate session secret
 	stepStart = time.Now()
@@ -118,7 +118,7 @@ func run() error {
 
 	// Write .env
 	stepStart = time.Now()
-	if err := writeEnv(clientID, clientSecret, issuer, sessionSecret); err != nil {
+	if err := writeEnv(clientID, clientSecret, customHostname, issuer, sessionSecret); err != nil {
 		return fmt.Errorf("write env: %w", err)
 	}
 	logger.Info("wrote environment file", "duration", time.Since(stepStart))
@@ -257,10 +257,11 @@ type clientMetadata struct {
 type clientRegistrationResponse struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
+	Hostname     string `json:"hostname"`
 	Scope        string `json:"scope"`
 }
 
-func registerClient(token, endpoint, appName string) (string, string, string, error) {
+func registerClient(token, endpoint, appName string) (string, string, string, string, error) {
 	fmt.Printf("==> Registering client '%s' with %s...\n", appName, endpoint)
 
 	body, err := json.Marshal(clientMetadata{
@@ -275,47 +276,47 @@ func registerClient(token, endpoint, appName string) (string, string, string, er
 		Scope:                   "openid email profile offline_access git",
 	})
 	if err != nil {
-		return "", "", "", fmt.Errorf("marshal request: %w", err)
+		return "", "", "", "", fmt.Errorf("marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", "", "", fmt.Errorf("create request: %w", err)
+		return "", "", "", "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", "", "", fmt.Errorf("POST register: %w", err)
+		return "", "", "", "", fmt.Errorf("POST register: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", "", "", fmt.Errorf("read response: %w", err)
+		return "", "", "", "", fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", "", "", fmt.Errorf("register returned %d: %s", resp.StatusCode, respBody)
+		return "", "", "", "", fmt.Errorf("register returned %d: %s", resp.StatusCode, respBody)
 	}
 
 	var result clientRegistrationResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", "", "", fmt.Errorf("decode response: %w", err)
+		return "", "", "", "", fmt.Errorf("decode response: %w", err)
 	}
 	if result.ClientID == "" {
-		return "", "", "", fmt.Errorf("empty client_id in response: %s", respBody)
+		return "", "", "", "", fmt.Errorf("empty client_id in response: %s", respBody)
 	}
 
-	return result.ClientID, result.ClientSecret, result.Scope, nil
+	return result.ClientID, result.ClientSecret, result.Hostname, result.Scope, nil
 }
 
-func writeEnv(clientID, clientSecret, issuer, sessionSecret string) error {
+func writeEnv(clientID, clientSecret, hostname, issuer, sessionSecret string) error {
 	fmt.Println("==> Writing /opt/srv/data/.env...")
 
-	content := fmt.Sprintf("HOUSECAT_CLIENT_ID=%s\nHOUSECAT_CLIENT_SECRET=%s\nOAUTH_ISSUER=%s\nSESSION_SECRET=%s\n",
-		clientID, clientSecret, issuer, sessionSecret)
+	content := fmt.Sprintf("HOUSECAT_CLIENT_ID=%s\nHOUSECAT_CLIENT_SECRET=%s\nHOSTNAME=%s\nOAUTH_ISSUER=%s\nSESSION_SECRET=%s\n",
+		clientID, clientSecret, hostname, issuer, sessionSecret)
 
 	f, err := os.CreateTemp("", "env-*")
 	if err != nil {
