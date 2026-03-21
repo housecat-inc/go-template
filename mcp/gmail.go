@@ -448,6 +448,25 @@ func (c *GmailClient) ListLabels(ctx context.Context) (ListLabelsOut, error) {
 	return out, nil
 }
 
+type CreateLabelOut = GmailLabel
+
+func (c *GmailClient) CreateLabel(ctx context.Context, name string) (CreateLabelOut, error) {
+	var out CreateLabelOut
+	body := map[string]any{
+		"name":                  name,
+		"labelListVisibility":   "labelShow",
+		"messageListVisibility": "show",
+	}
+	data, err := c.post(ctx, "/labels", nil, body)
+	if err != nil {
+		return out, errors.Wrap(err, "create label")
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, errors.Wrap(err, "decode label")
+	}
+	return out, nil
+}
+
 type CreateDraftIn struct {
 	Bcc         string `json:"bcc,omitempty"`
 	Body        string `json:"body"`

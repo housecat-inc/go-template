@@ -12,10 +12,18 @@ import (
 	"github.com/cockroachdb/errors"
 )
 
-const gcalAPIBase = "https://www.googleapis.com/calendar/v3"
+var gcalAPIBase = "https://www.googleapis.com/calendar/v3"
 
 type GCalClient struct {
-	Token string
+	BaseURL string
+	Token   string
+}
+
+func (c *GCalClient) baseURL() string {
+	if c.BaseURL != "" {
+		return c.BaseURL
+	}
+	return gcalAPIBase
 }
 
 type GCalAttendee struct {
@@ -38,20 +46,25 @@ type GCalDateTime struct {
 	TimeZone string `json:"timeZone,omitempty"`
 }
 
+type GCalExtendedProperties struct {
+	Private map[string]string `json:"private,omitempty"`
+}
+
 type GCalEvent struct {
-	Attendees   []GCalAttendee `json:"attendees,omitempty"`
-	Description string         `json:"description,omitempty"`
-	End         *GCalDateTime  `json:"end,omitempty"`
-	HtmlLink    string         `json:"htmlLink,omitempty"`
-	ID          string         `json:"id,omitempty"`
-	Location    string         `json:"location,omitempty"`
-	Start       *GCalDateTime  `json:"start,omitempty"`
-	Status      string         `json:"status,omitempty"`
-	Summary     string         `json:"summary,omitempty"`
+	Attendees          []GCalAttendee          `json:"attendees,omitempty"`
+	Description        string                  `json:"description,omitempty"`
+	End                *GCalDateTime           `json:"end,omitempty"`
+	ExtendedProperties *GCalExtendedProperties `json:"extendedProperties,omitempty"`
+	HtmlLink           string                  `json:"htmlLink,omitempty"`
+	ID                 string                  `json:"id,omitempty"`
+	Location           string                  `json:"location,omitempty"`
+	Start              *GCalDateTime           `json:"start,omitempty"`
+	Status             string                  `json:"status,omitempty"`
+	Summary            string                  `json:"summary,omitempty"`
 }
 
 func (c *GCalClient) do(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (json.RawMessage, error) {
-	apiURL := gcalAPIBase + path
+	apiURL := c.baseURL() + path
 	if len(query) > 0 {
 		apiURL += "?" + query.Encode()
 	}
@@ -206,16 +219,37 @@ func (c *GCalClient) GetEvent(ctx context.Context, calendarID, eventID string) (
 
 type CreateEventOut = GCalEvent
 
-func (c *GCalClient) CreateEvent(ctx context.Context, calendarID, summary, description, start, end string, attendees []string, location string) (CreateEventOut, error) {
+func (c *GCalClient) PrimaryTimezone(ctx context.Context) string {
+	data, err := c.get(ctx, "/users/me/settings/timezone", nil)
+	if err != nil {
+		return ""
+	}
+	var setting struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(data, &setting); err != nil {
+		return ""
+	}
+	return setting.Value
+}
+
+func (c *GCalClient) CreateEvent(ctx context.Context, calendarID, summary, description, start, end, timezone string, attendees []string, location string, draft bool) (CreateEventOut, error) {
 	var out CreateEventOut
 	if calendarID == "" {
 		calendarID = "primary"
 	}
 
+	startObj := map[string]string{"dateTime": start}
+	endObj := map[string]string{"dateTime": end}
+	if timezone != "" {
+		startObj["timeZone"] = timezone
+		endObj["timeZone"] = timezone
+	}
+
 	event := map[string]any{
 		"summary": summary,
-		"start":   map[string]string{"dateTime": start},
-		"end":     map[string]string{"dateTime": end},
+		"start":   startObj,
+		"end":     endObj,
 	}
 	if description != "" {
 		event["description"] = description
@@ -230,6 +264,11 @@ func (c *GCalClient) CreateEvent(ctx context.Context, calendarID, summary, descr
 		}
 		event["attendees"] = attendeeList
 	}
+	if draft {
+		event["extendedProperties"] = map[string]any{
+			"private": map[string]string{"housecat_draft": "true"},
+		}
+	}
 
 	data, err := c.post(ctx, "/calendars/"+url.PathEscape(calendarID)+"/events", nil, event)
 	if err != nil {
@@ -243,14 +282,17 @@ func (c *GCalClient) CreateEvent(ctx context.Context, calendarID, summary, descr
 }
 
 type UpdateEventIn struct {
-	Attendees   []string `json:"-"`
-	CalendarID  string   `json:"-"`
-	Description *string  `json:"-"`
-	End         string   `json:"-"`
-	EventID     string   `json:"-"`
-	Location    *string  `json:"-"`
-	Start       string   `json:"-"`
-	Summary     string   `json:"-"`
+	Attendees          []string           `json:"-"`
+	CalendarID         string             `json:"-"`
+	Description        *string            `json:"-"`
+	End                string             `json:"-"`
+	EventID            string             `json:"-"`
+	ExtendedProperties map[string]string  `json:"-"`
+	Location           *string            `json:"-"`
+	SendUpdates        string             `json:"-"`
+	Start              string             `json:"-"`
+	Summary            string             `json:"-"`
+	Timezone           string             `json:"-"`
 }
 
 type UpdateEventOut = GCalEvent
@@ -270,10 +312,18 @@ func (c *GCalClient) UpdateEvent(ctx context.Context, in UpdateEventIn) (UpdateE
 		event["description"] = *in.Description
 	}
 	if in.Start != "" {
-		event["start"] = map[string]string{"dateTime": in.Start}
+		s := map[string]string{"dateTime": in.Start}
+		if in.Timezone != "" {
+			s["timeZone"] = in.Timezone
+		}
+		event["start"] = s
 	}
 	if in.End != "" {
-		event["end"] = map[string]string{"dateTime": in.End}
+		e := map[string]string{"dateTime": in.End}
+		if in.Timezone != "" {
+			e["timeZone"] = in.Timezone
+		}
+		event["end"] = e
 	}
 	if in.Location != nil {
 		event["location"] = *in.Location
@@ -285,13 +335,23 @@ func (c *GCalClient) UpdateEvent(ctx context.Context, in UpdateEventIn) (UpdateE
 		}
 		event["attendees"] = attendeeList
 	}
+	if len(in.ExtendedProperties) > 0 {
+		event["extendedProperties"] = map[string]any{
+			"private": in.ExtendedProperties,
+		}
+	}
+
+	query := url.Values{}
+	if in.SendUpdates != "" {
+		query.Set("sendUpdates", in.SendUpdates)
+	}
 
 	body, err := json.Marshal(event)
 	if err != nil {
 		return out, errors.Wrap(err, "marshal event")
 	}
 
-	data, err := c.do(ctx, http.MethodPatch, "/calendars/"+url.PathEscape(calendarID)+"/events/"+url.PathEscape(in.EventID), nil, bytes.NewReader(body), "application/json")
+	data, err := c.do(ctx, http.MethodPatch, "/calendars/"+url.PathEscape(calendarID)+"/events/"+url.PathEscape(in.EventID), query, bytes.NewReader(body), "application/json")
 	if err != nil {
 		return out, errors.Wrap(err, "update event")
 	}

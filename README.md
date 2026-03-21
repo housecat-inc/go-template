@@ -81,8 +81,10 @@ Data Access
   - auth/gmail.labels
   - auth/gmail.modify
 - [GCal API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=housecat-staging-v0)
-  - auth/calendar.readonly
-  - auth/calendar
+  - auth/calendar.events.readonly (read level)
+  - auth/calendar.events.owned (draft level)
+  - auth/calendar.events (write/archive level)
+  - auth/calendar.settings.readonly (read/draft/write — timezone detection)
 - [GDrive API](https://console.cloud.google.com/apis/library/drive.googleapis.com?project=housecat-staging-v0)
   - auth/drive.readonly
   - auth/drive.file

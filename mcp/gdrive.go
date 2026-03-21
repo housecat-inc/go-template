@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/cockroachdb/errors"
 )
@@ -259,6 +260,41 @@ func (c *GDriveClient) CreateFile(ctx context.Context, name, mimeType, content, 
 		return out, errors.Wrap(err, "marshal metadata")
 	}
 
+	fields := "id,mimeType,modifiedTime,name,parents,size,webViewLink"
+
+	if content == "" && strings.HasPrefix(mimeType, "application/vnd.google-apps.") {
+		apiURL := gdriveAPIBase + "/files?fields=" + fields
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(metaJSON))
+		if err != nil {
+			return out, errors.Wrap(err, "create request")
+		}
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return out, errors.Wrap(err, "drive api request")
+		}
+		defer resp.Body.Close()
+
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return out, errors.Wrap(err, "read response")
+		}
+		if resp.StatusCode >= 300 {
+			return out, errors.Newf("drive api error (%d): %s", resp.StatusCode, string(data))
+		}
+		if err := json.Unmarshal(data, &out.File); err != nil {
+			return out, errors.Wrap(err, "decode file")
+		}
+		return out, nil
+	}
+
+	contentMime := mimeType
+	if strings.HasPrefix(mimeType, "application/vnd.google-apps.") {
+		contentMime = "text/plain"
+	}
+
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
@@ -273,7 +309,7 @@ func (c *GDriveClient) CreateFile(ctx context.Context, name, mimeType, content, 
 	}
 
 	contentPart, err := writer.CreatePart(map[string][]string{
-		"Content-Type": {mimeType},
+		"Content-Type": {contentMime},
 	})
 	if err != nil {
 		return out, errors.Wrap(err, "create content part")
@@ -286,7 +322,7 @@ func (c *GDriveClient) CreateFile(ctx context.Context, name, mimeType, content, 
 		return out, errors.Wrap(err, "close multipart writer")
 	}
 
-	uploadURL := gdriveUploadBase + "/files?uploadType=multipart&fields=id,mimeType,modifiedTime,name,parents,size,webViewLink"
+	uploadURL := gdriveUploadBase + "/files?uploadType=multipart&fields=" + fields
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, &buf)
 	if err != nil {

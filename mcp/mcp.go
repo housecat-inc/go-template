@@ -53,10 +53,10 @@ var Services = []Service{
 		Name:        "Google Calendar",
 		Description: "Calendar access via Google Calendar API",
 		Connections: []Connection{
-			{Level: "read", Description: "Get events", Scopes: []string{"https://www.googleapis.com/auth/calendar.readonly"}},
-			{Level: "draft", Description: "Create personal events for review", Scopes: []string{"https://www.googleapis.com/auth/calendar"}},
-			{Level: "write", Description: "Create events and invites", Scopes: []string{"https://www.googleapis.com/auth/calendar"}},
-			{Level: "archive", Description: "Delete events", Scopes: []string{"https://www.googleapis.com/auth/calendar"}},
+			{Level: "read", Description: "Get events", Scopes: []string{"https://www.googleapis.com/auth/calendar.events.readonly", "https://www.googleapis.com/auth/calendar.settings.readonly"}},
+			{Level: "draft", Description: "Create and delete own events", Scopes: []string{"https://www.googleapis.com/auth/calendar.events.owned", "https://www.googleapis.com/auth/calendar.settings.readonly"}},
+			{Level: "write", Description: "Create events and invites", Scopes: []string{"https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.settings.readonly"}},
+			{Level: "archive", Description: "Delete any event", Scopes: []string{"https://www.googleapis.com/auth/calendar.events"}},
 		},
 	},
 	{
@@ -65,9 +65,9 @@ var Services = []Service{
 		Description: "File access via Google Drive API",
 		Connections: []Connection{
 			{Level: "read", Description: "Get files and folders", Scopes: []string{"https://www.googleapis.com/auth/drive.readonly"}},
-			{Level: "draft", Description: "Create private docs for review", Scopes: []string{"https://www.googleapis.com/auth/drive.file"}},
+			{Level: "draft", Description: "Create, edit, and delete own files", Scopes: []string{"https://www.googleapis.com/auth/drive.file"}},
 			{Level: "write", Description: "Create and share files", Scopes: []string{"https://www.googleapis.com/auth/drive"}},
-			{Level: "archive", Description: "Trash and delete files", Scopes: []string{"https://www.googleapis.com/auth/drive"}},
+			{Level: "archive", Description: "Trash and delete any file", Scopes: []string{"https://www.googleapis.com/auth/drive"}},
 		},
 	},
 	{
@@ -76,9 +76,9 @@ var Services = []Service{
 		Description: "Document access via Google Docs API",
 		Connections: []Connection{
 			{Level: "read", Description: "Get documents", Scopes: []string{"https://www.googleapis.com/auth/documents.readonly", "https://www.googleapis.com/auth/drive.readonly"}},
-			{Level: "draft", Description: "Create and edit own documents", Scopes: []string{"https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/drive.file"}},
+			{Level: "draft", Description: "Create, edit, and delete own documents", Scopes: []string{"https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/drive.file"}},
 			{Level: "write", Description: "Edit any accessible document", Scopes: []string{"https://www.googleapis.com/auth/documents"}},
-			{Level: "archive", Description: "Delete documents", Scopes: []string{"https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/drive"}},
+			{Level: "archive", Description: "Delete any document", Scopes: []string{"https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/drive"}},
 		},
 	},
 	{
@@ -87,9 +87,9 @@ var Services = []Service{
 		Description: "Email access via Gmail API",
 		Connections: []Connection{
 			{Level: "read", Description: "Get emails and threads", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}},
-			{Level: "draft", Description: "Create draft emails for review", Scopes: []string{"https://www.googleapis.com/auth/gmail.compose"}},
+			{Level: "draft", Description: "Create, edit, and delete own drafts", Scopes: []string{"https://www.googleapis.com/auth/gmail.compose"}},
 			{Level: "write", Description: "Send emails and manage labels", Scopes: []string{"https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.labels", "https://www.googleapis.com/auth/gmail.modify"}},
-			{Level: "archive", Description: "Trash and delete emails", Scopes: []string{"https://www.googleapis.com/auth/gmail.modify"}},
+			{Level: "archive", Description: "Trash and delete any email", Scopes: []string{"https://www.googleapis.com/auth/gmail.modify"}},
 		},
 	},
 	{
@@ -98,9 +98,9 @@ var Services = []Service{
 		Description: "Spreadsheet access via Google Sheets API",
 		Connections: []Connection{
 			{Level: "read", Description: "Get spreadsheets", Scopes: []string{"https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.readonly"}},
-			{Level: "draft", Description: "Create and edit own spreadsheets", Scopes: []string{"https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"}},
+			{Level: "draft", Description: "Create, edit, and delete own spreadsheets", Scopes: []string{"https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"}},
 			{Level: "write", Description: "Edit any accessible spreadsheet", Scopes: []string{"https://www.googleapis.com/auth/spreadsheets"}},
-			{Level: "archive", Description: "Delete spreadsheets", Scopes: []string{"https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"}},
+			{Level: "archive", Description: "Delete any spreadsheet", Scopes: []string{"https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"}},
 		},
 	},
 	{
@@ -161,7 +161,7 @@ func levelFallback(minLevel string) []string {
 	case "read":
 		return []string{"read", "draft", "write"}
 	case "draft":
-		return []string{"draft", "write"}
+		return []string{"write", "draft"}
 	default:
 		return []string{minLevel}
 	}
@@ -192,7 +192,7 @@ func tokenForServiceWithLevel(ctx context.Context, req *gomcp.CallToolRequest, l
 	if subject == "" {
 		return "", "", errors.New("not authenticated")
 	}
-	for _, level := range []string{"write", "draft"} {
+	for _, level := range levelFallback(minLevel) {
 		token, err := lookup(ctx, subject, service, level)
 		if err != nil {
 			if errors.Is(err, ErrTokenNotFound) {
@@ -204,7 +204,27 @@ func tokenForServiceWithLevel(ctx context.Context, req *gomcp.CallToolRequest, l
 			return token, level, nil
 		}
 	}
-	return "", "", errors.Newf("%s draft or write level not connected, visit the connections hub", service)
+	return "", "", errors.Newf("%s %s level not connected, visit the connections hub", service, minLevel)
+}
+
+func tokenForServiceDeleteLevel(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, service string) (string, string, error) {
+	subject := subjectFromRequest(req)
+	if subject == "" {
+		return "", "", errors.New("not authenticated")
+	}
+	for _, level := range []string{"archive", "draft"} {
+		token, err := lookup(ctx, subject, service, level)
+		if err != nil {
+			if errors.Is(err, ErrTokenNotFound) {
+				continue
+			}
+			return "", "", errors.Wrap(err, "token lookup")
+		}
+		if token != "" {
+			return token, level, nil
+		}
+	}
+	return "", "", errors.Newf("%s archive or draft level required to delete, visit the connections hub", service)
 }
 
 func tokenForServiceExact(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, service, level string) (string, error) {
@@ -229,6 +249,98 @@ func verifyAppCreated(ctx context.Context, token, fileID string) error {
 		return errors.New("this file was not created by this app — draft level can only edit app-created files")
 	}
 	return nil
+}
+
+func verifyDraftEvent(ctx context.Context, client *GCalClient, calendarID, eventID string) error {
+	event, err := client.GetEvent(ctx, calendarID, eventID)
+	if err != nil {
+		return err
+	}
+	if event.ExtendedProperties == nil || event.ExtendedProperties.Private["housecat_draft"] != "true" {
+		return errors.New("draft level can only edit events drafted by this app")
+	}
+	return nil
+}
+
+func findAttendeesSection(desc string) (idx int, header string) {
+	for _, h := range []string{"\n\nAttendees:\n\n", "Attendees:\n\n"} {
+		i := strings.Index(desc, h)
+		if i >= 0 {
+			return i, h
+		}
+	}
+	return -1, ""
+}
+
+func trimLeadingBR(s string) string {
+	for strings.HasPrefix(s, "<br>") {
+		s = s[len("<br>"):]
+	}
+	return s
+}
+
+func stripHTMLSuffix(s string) string {
+	if i := strings.Index(s, "<"); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+func parseAttendeesFromDescription(desc string) []string {
+	idx, header := findAttendeesSection(desc)
+	if idx < 0 {
+		return nil
+	}
+	section := desc[idx+len(header):]
+	var attendees []string
+	for _, line := range strings.Split(section, "\n") {
+		line = stripHTMLSuffix(line)
+		email := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
+		if email == "" {
+			break
+		}
+		if strings.Contains(email, "@") && !strings.Contains(email, " ") {
+			attendees = append(attendees, email)
+		}
+	}
+	return attendees
+}
+
+func removeAttendeesSection(desc string) string {
+	idx, header := findAttendeesSection(desc)
+	if idx < 0 {
+		return desc
+	}
+	prefix := strings.TrimRight(desc[:idx], "\n")
+	rest := desc[idx+len(header):]
+	lines := strings.Split(rest, "\n")
+	for i, line := range lines {
+		stripped := stripHTMLSuffix(line)
+		trimmed := strings.TrimSpace(stripped)
+		isAttendee := strings.HasPrefix(trimmed, "- ") && strings.Contains(trimmed, "@")
+		if !isAttendee {
+			remaining := strings.TrimLeft(strings.Join(lines[i:], "\n"), "\n")
+			if remaining == "" {
+				return prefix
+			}
+			if prefix == "" {
+				return remaining
+			}
+			return prefix + "\n\n" + remaining
+		}
+		if len(stripped) < len(line) {
+			htmlTail := line[len(stripped):]
+			after := strings.TrimLeft(htmlTail+strings.Join(lines[i+1:], "\n"), "\n")
+			if after == "" {
+				return prefix
+			}
+			if prefix == "" {
+				return trimLeadingBR(after)
+			}
+			return prefix + after
+		}
+	}
+	return prefix
 }
 
 func gcalClientFromRequest(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, minLevel string) (*GCalClient, error) {
@@ -504,7 +616,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gcal_list_calendars",
-		Description: "List all calendars the user has access to. Requires Google Calendar read connection.",
+		Description: "List all calendars the user has access to. Note: requires full calendar.readonly scope which is not included by default.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct{}) (*gomcp.CallToolResult, any, error) {
 		client, err := gcalClientFromRequest(ctx, req, lookup, "read")
 		if err != nil {
@@ -570,10 +682,12 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		Attendees   []string `json:"attendees,omitempty" jsonschema:"List of attendee email addresses"`
 		CalendarID  string   `json:"calendar_id,omitempty" jsonschema:"Calendar ID (default 'primary')"`
 		Description string   `json:"description,omitempty" jsonschema:"Event description"`
-		End         string   `json:"end" jsonschema:"End time in RFC3339 format"`
+		Draft       bool     `json:"draft,omitempty" jsonschema:"Create as draft: no invites sent, attendees listed in description only"`
+		End         string   `json:"end" jsonschema:"End time without Z suffix (e.g. 2026-03-22T13:00:00). Timezone is auto-detected from calendar settings."`
 		Location    string   `json:"location,omitempty" jsonschema:"Event location"`
-		Start       string   `json:"start" jsonschema:"Start time in RFC3339 format"`
+		Start       string   `json:"start" jsonschema:"Start time without Z suffix (e.g. 2026-03-22T12:00:00). Timezone is auto-detected from calendar settings."`
 		Summary     string   `json:"summary" jsonschema:"Event title"`
+		Timezone    string   `json:"timezone,omitempty" jsonschema:"IANA timezone override (e.g. America/Los_Angeles). Auto-detected from calendar if omitted."`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.Summary == "" {
 			return errResult("summary is required")
@@ -584,12 +698,32 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if input.End == "" {
 			return errResult("end is required")
 		}
-		client, err := gcalClientFromRequest(ctx, req, lookup, "draft")
+		token, level, err := tokenForServiceWithLevel(ctx, req, lookup, "gcal", "draft")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		desc := input.Description + brandingFooter(ctx, req, branding, baseURL, "Created", "html")
-		out, err := client.CreateEvent(ctx, input.CalendarID, input.Summary, desc, input.Start, input.End, input.Attendees, input.Location)
+		client := &GCalClient{Token: token}
+		tz := input.Timezone
+		if tz == "" {
+			tz = client.PrimaryTimezone(ctx)
+		}
+		isDraft := input.Draft || level == "draft"
+		attendees := input.Attendees
+		desc := input.Description
+		if isDraft && len(attendees) > 0 {
+			sep := "\n\n"
+			if desc == "" {
+				sep = ""
+			}
+			desc += sep + "Attendees:\n\n - " + strings.Join(attendees, "\n - ")
+			attendees = nil
+		}
+		verb := "Sent"
+		if isDraft {
+			verb = "Drafted"
+		}
+		desc += brandingFooter(ctx, req, branding, baseURL, verb, "html")
+		out, err := client.CreateEvent(ctx, input.CalendarID, input.Summary, desc, input.Start, input.End, tz, attendees, input.Location, isDraft)
 		if err != nil {
 			return errResult(err.Error())
 		}
@@ -621,34 +755,115 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gcal_update_event",
-		Description: "Update a Google Calendar event. Only provided fields are changed. Requires Google Calendar write connection.",
+		Description: "Update a Google Calendar event. Set draft=false to send a drafted event: moves attendees from body to invites, sends notifications. Requires write to send, draft to edit own events.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		Attendees   []string `json:"attendees,omitempty" jsonschema:"Attendee email addresses (replaces existing attendees)"`
 		CalendarID  string   `json:"calendar_id,omitempty" jsonschema:"Calendar ID (default primary)"`
 		Description *string  `json:"description,omitempty" jsonschema:"Event description"`
-		End         string   `json:"end,omitempty" jsonschema:"End time (RFC3339)"`
+		Draft       *bool    `json:"draft,omitempty" jsonschema:"Set to false to send a drafted event (invites attendees). Set to true to convert to draft."`
+		End         string   `json:"end,omitempty" jsonschema:"End time without Z suffix (e.g. 2026-03-22T13:00:00). Timezone is auto-detected from calendar settings."`
 		EventID     string   `json:"event_id" jsonschema:"Event ID to update"`
 		Location    *string  `json:"location,omitempty" jsonschema:"Event location"`
-		Start       string   `json:"start,omitempty" jsonschema:"Start time (RFC3339)"`
+		Start       string   `json:"start,omitempty" jsonschema:"Start time without Z suffix (e.g. 2026-03-22T12:00:00). Timezone is auto-detected from calendar settings."`
 		Summary     string   `json:"summary,omitempty" jsonschema:"Event title"`
+		Timezone    string   `json:"timezone,omitempty" jsonschema:"IANA timezone override (e.g. America/Los_Angeles). Auto-detected from calendar if omitted."`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.EventID == "" {
 			return errResult("event_id is required")
 		}
-		client, err := gcalClientFromRequest(ctx, req, lookup, "write")
+
+		sending := input.Draft != nil && !*input.Draft
+		if sending {
+			client, err := gcalClientFromRequest(ctx, req, lookup, "write")
+			if err != nil {
+				return errResult(err.Error())
+			}
+
+			event, err := client.GetEvent(ctx, input.CalendarID, input.EventID)
+			if err != nil {
+				return errResult(err.Error())
+			}
+			var attendees []string
+			if input.Attendees != nil {
+				attendees = input.Attendees
+			} else {
+				attendees = parseAttendeesFromDescription(event.Description)
+			}
+
+			desc := removeAttendeesSection(event.Description)
+			desc = strings.Replace(desc, ">Drafted with Housecat<", ">Sent with Housecat<", 1)
+
+			tz := input.Timezone
+			if tz == "" && (input.Start != "" || input.End != "") {
+				tz = client.PrimaryTimezone(ctx)
+			}
+
+			out, err := client.UpdateEvent(ctx, UpdateEventIn{
+				Attendees:          attendees,
+				CalendarID:         input.CalendarID,
+				Description:        &desc,
+				End:                input.End,
+				EventID:            input.EventID,
+				ExtendedProperties: map[string]string{"housecat_draft": ""},
+				Location:           input.Location,
+				SendUpdates:        "all",
+				Start:              input.Start,
+				Summary:            input.Summary,
+				Timezone:           tz,
+			})
+			if err != nil {
+				return errResult(err.Error())
+			}
+			result, err := textResult(out)
+			return result, nil, err
+		}
+
+		token, level, err := tokenForServiceWithLevel(ctx, req, lookup, "gcal", "draft")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.UpdateEvent(ctx, UpdateEventIn{
-			Attendees:   input.Attendees,
+		client := &GCalClient{Token: token}
+		if level == "draft" {
+			if err := verifyDraftEvent(ctx, client, input.CalendarID, input.EventID); err != nil {
+				return errResult(err.Error())
+			}
+		}
+
+		tz := input.Timezone
+		if tz == "" && (input.Start != "" || input.End != "") {
+			tz = client.PrimaryTimezone(ctx)
+		}
+
+		drafting := input.Draft != nil && *input.Draft
+		attendees := input.Attendees
+		desc := input.Description
+		if drafting && len(attendees) > 0 {
+			atSection := "Attendees:\n\n - " + strings.Join(attendees, "\n - ")
+			if desc != nil && *desc != "" {
+				combined := *desc + "\n\n" + atSection
+				desc = &combined
+			} else {
+				desc = &atSection
+			}
+			attendees = []string{}
+		}
+
+		updateIn := UpdateEventIn{
+			Attendees:   attendees,
 			CalendarID:  input.CalendarID,
-			Description: input.Description,
+			Description: desc,
 			End:         input.End,
 			EventID:     input.EventID,
 			Location:    input.Location,
 			Start:       input.Start,
 			Summary:     input.Summary,
-		})
+			Timezone:    tz,
+		}
+		if drafting {
+			updateIn.ExtendedProperties = map[string]string{"housecat_draft": "true"}
+		}
+
+		out, err := client.UpdateEvent(ctx, updateIn)
 		if err != nil {
 			return errResult(err.Error())
 		}
@@ -658,17 +873,40 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gcal_delete_event",
-		Description: "Delete a Google Calendar event. Requires Google Calendar archive connection.",
+		Description: "Delete a Google Calendar event. Set draft=true to only delete draft events. Sent events require archive level.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		CalendarID string `json:"calendar_id,omitempty" jsonschema:"Calendar ID (default primary)"`
+		Draft      bool   `json:"draft,omitempty" jsonschema:"If true, only delete if event is a draft"`
 		EventID    string `json:"event_id" jsonschema:"Event ID to delete"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.EventID == "" {
 			return errResult("event_id is required")
 		}
-		client, err := gcalClientFromRequest(ctx, req, lookup, "archive")
+		if input.Draft {
+			token, _, err := tokenForServiceWithLevel(ctx, req, lookup, "gcal", "draft")
+			if err != nil {
+				return errResult(err.Error())
+			}
+			client := &GCalClient{Token: token}
+			if err := verifyDraftEvent(ctx, client, input.CalendarID, input.EventID); err != nil {
+				return errResult("event is not a draft")
+			}
+			out, err := client.DeleteEvent(ctx, input.CalendarID, input.EventID)
+			if err != nil {
+				return errResult(err.Error())
+			}
+			result, err := textResult(out)
+			return result, nil, err
+		}
+		token, level, err := tokenForServiceDeleteLevel(ctx, req, lookup, "gcal")
 		if err != nil {
 			return errResult(err.Error())
+		}
+		client := &GCalClient{Token: token}
+		if level == "draft" {
+			if err := verifyDraftEvent(ctx, client, input.CalendarID, input.EventID); err != nil {
+				return errResult("sent events require archive level to delete")
+			}
 		}
 		out, err := client.DeleteEvent(ctx, input.CalendarID, input.EventID)
 		if err != nil {
@@ -785,38 +1023,21 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gdocs_delete_document",
-		Description: "Delete a Google Docs document by moving it to trash. Requires Google Docs archive connection.",
+		Description: "Delete a Google Docs document by moving it to trash. Draft level deletes own documents. Archive level deletes any document.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		DocumentID string `json:"document_id" jsonschema:"Google Docs document ID"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.DocumentID == "" {
 			return errResult("document_id is required")
 		}
-		token, err := tokenForService(ctx, req, lookup, "gdocs", "archive")
+		token, level, err := tokenForServiceDeleteLevel(ctx, req, lookup, "gdocs")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		client := &GDriveClient{Token: token}
-		out, err := client.TrashFile(ctx, input.DocumentID)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "gdocs_delete_own_document",
-		Description: "Delete a Google Docs document created by this app. Requires Google Docs draft connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		DocumentID string `json:"document_id" jsonschema:"Google Docs document ID"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.DocumentID == "" {
-			return errResult("document_id is required")
-		}
-		token, err := tokenForServiceExact(ctx, req, lookup, "gdocs", "draft")
-		if err != nil {
-			return errResult(err.Error())
+		if level == "draft" {
+			if err := verifyAppCreated(ctx, token, input.DocumentID); err != nil {
+				return errResult("draft level can only delete app-created documents")
+			}
 		}
 		client := &GDriveClient{Token: token}
 		out, err := client.TrashFile(ctx, input.DocumentID)
@@ -977,37 +1198,21 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gdrive_trash_file",
-		Description: "Move a Google Drive file to trash. Requires Google Drive archive connection.",
+		Description: "Move a Google Drive file to trash. Draft level trashes own files. Archive level trashes any file.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		FileID string `json:"file_id" jsonschema:"Google Drive file ID"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.FileID == "" {
 			return errResult("file_id is required")
 		}
-		client, err := gdriveClientFromRequest(ctx, req, lookup, "archive")
+		token, level, err := tokenForServiceDeleteLevel(ctx, req, lookup, "gdrive")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.TrashFile(ctx, input.FileID)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "gdrive_trash_own_file",
-		Description: "Move a Google Drive file created by this app to trash. Requires Google Drive draft connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		FileID string `json:"file_id" jsonschema:"Google Drive file ID"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.FileID == "" {
-			return errResult("file_id is required")
-		}
-		token, err := tokenForServiceExact(ctx, req, lookup, "gdrive", "draft")
-		if err != nil {
-			return errResult(err.Error())
+		if level == "draft" {
+			if err := verifyAppCreated(ctx, token, input.FileID); err != nil {
+				return errResult("draft level can only trash app-created files")
+			}
 		}
 		client := &GDriveClient{Token: token}
 		out, err := client.TrashFile(ctx, input.FileID)
@@ -1161,6 +1366,31 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_create_label",
+		Description: "Create one or more Gmail labels. Requires Gmail write connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		Names []string `json:"names" jsonschema:"Label names to create"`
+	}) (*gomcp.CallToolResult, any, error) {
+		if len(input.Names) == 0 {
+			return errResult("names is required")
+		}
+		client, err := gmailClientFromRequest(ctx, req, lookup, "write")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		var created []CreateLabelOut
+		for _, name := range input.Names {
+			label, err := client.CreateLabel(ctx, name)
+			if err != nil {
+				return errResult(err.Error())
+			}
+			created = append(created, label)
+		}
+		result, err := textResult(created)
+		return result, nil, err
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_delete_draft",
 		Description: "Delete a Gmail draft. Requires Gmail draft connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
@@ -1287,7 +1517,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_trash_message",
-		Description: "Move an email to trash. Requires Gmail archive connection.",
+		Description: "Move an email to trash. Archive level trashes any email.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		MessageID string `json:"message_id" jsonschema:"Gmail message ID to trash"`
 	}) (*gomcp.CallToolResult, any, error) {
@@ -1548,38 +1778,21 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gsheets_delete_spreadsheet",
-		Description: "Delete a Google Sheets spreadsheet by moving it to trash. Requires Google Sheets archive connection.",
+		Description: "Delete a Google Sheets spreadsheet by moving it to trash. Draft level deletes own spreadsheets. Archive level deletes any spreadsheet.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		SpreadsheetID string `json:"spreadsheet_id" jsonschema:"Google Sheets spreadsheet ID"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.SpreadsheetID == "" {
 			return errResult("spreadsheet_id is required")
 		}
-		token, err := tokenForService(ctx, req, lookup, "gsheets", "archive")
+		token, level, err := tokenForServiceDeleteLevel(ctx, req, lookup, "gsheets")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		client := &GDriveClient{Token: token}
-		out, err := client.TrashFile(ctx, input.SpreadsheetID)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "gsheets_delete_own_spreadsheet",
-		Description: "Delete a Google Sheets spreadsheet created by this app. Requires Google Sheets draft connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		SpreadsheetID string `json:"spreadsheet_id" jsonschema:"Google Sheets spreadsheet ID"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.SpreadsheetID == "" {
-			return errResult("spreadsheet_id is required")
-		}
-		token, err := tokenForServiceExact(ctx, req, lookup, "gsheets", "draft")
-		if err != nil {
-			return errResult(err.Error())
+		if level == "draft" {
+			if err := verifyAppCreated(ctx, token, input.SpreadsheetID); err != nil {
+				return errResult("draft level can only delete app-created spreadsheets")
+			}
 		}
 		client := &GDriveClient{Token: token}
 		out, err := client.TrashFile(ctx, input.SpreadsheetID)
