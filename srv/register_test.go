@@ -18,7 +18,7 @@ func testServer(t *testing.T) *Server {
 	t.Helper()
 	tempDB := filepath.Join(t.TempDir(), "test.sqlite3")
 	t.Cleanup(func() { os.Remove(tempDB) })
-	server, err := New(tempDB, "test-hostname", OAuthConfig{SessionSecret: "test-secret"}, "")
+	server, err := New(tempDB, "test-hostname", nil, OAuthConfig{SessionSecret: "test-secret"}, "")
 	require.New(t).NoError(err)
 	return server
 }

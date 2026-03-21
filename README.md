@@ -90,9 +90,15 @@ Data Access
 - [GDocs API](https://console.cloud.google.com/apis/library/docs.googleapis.com?project=housecat-staging-v0)
   - auth/documents.readonly
   - auth/documents
+  - auth/drive.readonly (read level — discover docs via Drive)
+  - auth/drive.file (draft level — delete app-created docs)
+  - auth/drive (archive level — deletion via Drive API)
 - [GSheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com?project=housecat-staging-v0)
   - auth/spreadsheets.readonly
   - auth/spreadsheets
+  - auth/drive.readonly (read level — discover spreadsheets via Drive)
+  - auth/drive.file (draft level — delete app-created spreadsheets)
+  - auth/drive (archive level — deletion via Drive API)
 
 ### Slack
 
@@ -102,6 +108,35 @@ Data Access
 
 - Dev: https://www.notion.so/profile/integrations/public/30dd872b-594c-81d0-a1dc-00378bb7a079
 - Prod: https://www.notion.so/profile/integrations/public/2c4d872b-594c-80ef-aed4-00379aff0462
+
+## Connection Levels
+
+Each integration supports multiple connection levels that control what actions are allowed. Levels are independent — connecting at one level does not grant access to another.
+
+| Level   | Purpose                          |
+|---------|----------------------------------|
+| read    | Fetch and search data            |
+| draft   | Create items for review          |
+| write   | Create, send, and share          |
+| archive | Trash and delete                 |
+
+The `read → draft → write` levels form a fallback chain: a tool requiring `read` will accept a `draft` or `write` token. The `archive` level is **independent** — it never falls back to or from other levels.
+
+### Archive level
+
+Archive connections grant destructive permissions (trash, delete) separately from write access. This prevents accidental deletions when only write access was intended.
+
+Services with archive support:
+
+| Service | Archive scopes | Tool |
+|---------|---------------|------|
+| Gmail   | `gmail.modify` | `gmail_trash_message` |
+| GCal    | `calendar` | `gcal_delete_event` |
+| GDrive  | `drive` | `gdrive_trash_file` |
+| GDocs   | `documents` + `drive` | `gdocs_delete_document` |
+| GSheets | `spreadsheets` + `drive` | `gsheets_delete_spreadsheet` |
+
+GDocs and GSheets archive levels request the `drive` scope in addition to their native scope because deletion goes through the Drive API.
 
 ## Authorization
 

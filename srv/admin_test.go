@@ -16,7 +16,7 @@ func TestRequireAdmin(t *testing.T) {
 	tempDB := filepath.Join(t.TempDir(), "test_admin.sqlite3")
 	t.Cleanup(func() { os.Remove(tempDB) })
 
-	server, err := New(tempDB, "test-hostname", OAuthConfig{}, "")
+	server, err := New(tempDB, "test-hostname", nil, OAuthConfig{}, "")
 	r := require.New(t)
 	r.NoError(err)
 

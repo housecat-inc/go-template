@@ -46,6 +46,7 @@ type Server struct {
 	ExeDev *exedev.Client
 	GitProxy *gh.Proxy
 	Hostname          string
+	HostnameAliases   []string
 	OAuth             OAuthConfig
 	SlackOAuth        ServiceOAuthConfig
 	oauth2Config  *oauth2.Config
@@ -57,11 +58,12 @@ type Server struct {
 	vmSetups      sync.Map
 }
 
-func New(dbPath, hostname string, oauthCfg OAuthConfig, exedevKeyPath string) (*Server, error) {
+func New(dbPath, hostname string, hostnameAliases []string, oauthCfg OAuthConfig, exedevKeyPath string) (*Server, error) {
 	srv := &Server{
-		Hostname:      hostname,
-		sessionSecret: oauthCfg.SessionSecret,
-		OAuth:    oauthCfg,
+		Hostname:        hostname,
+		HostnameAliases: hostnameAliases,
+		sessionSecret:   oauthCfg.SessionSecret,
+		OAuth:           oauthCfg,
 	}
 	if err := srv.setUpDatabase(dbPath); err != nil {
 		return nil, err
@@ -91,8 +93,13 @@ func (s *Server) setUpOIDCProvider(dbPath string) error {
 		issuer = "http://" + s.Hostname
 	}
 
+	allowedIssuers := map[string]string{s.Hostname: issuer}
+	for _, alias := range s.HostnameAliases {
+		allowedIssuers[alias] = "https://" + alias
+	}
+
 	keyPath := filepath.Join(filepath.Dir(dbPath), "oidc_signing.key")
-	provider, storage, crypto, err := hcoidc.NewProvider(issuer, s.DB, keyPath, s.sessionSecret)
+	provider, storage, crypto, err := hcoidc.NewProvider(issuer, allowedIssuers, s.DB, keyPath, s.sessionSecret)
 	if err != nil {
 		return errors.Wrap(err, "setup oidc provider")
 	}
@@ -140,6 +147,41 @@ func (s *Server) Serve(addr string) error {
 			return nil
 		}
 	})
+
+	if s.Hostname != "" {
+		aliasHosts := map[string]bool{}
+		for _, alias := range s.HostnameAliases {
+			aliasHosts[alias] = true
+		}
+		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				host := c.Request().Host
+				if host == s.Hostname || host == "localhost:8000" {
+					return next(c)
+				}
+				if aliasHosts[host] {
+					path := c.Request().URL.Path
+					if strings.HasPrefix(path, "/.well-known/") ||
+						strings.HasPrefix(path, "/authorize") ||
+						strings.HasPrefix(path, "/oauth/") ||
+						path == "/keys" ||
+						path == "/userinfo" ||
+						strings.HasPrefix(path, "/oidc/") ||
+						strings.HasPrefix(path, "/api/") ||
+						strings.HasPrefix(path, "/register") ||
+						strings.HasPrefix(path, "/mcp") ||
+						strings.HasPrefix(path, "/github.com/") ||
+						strings.HasPrefix(path, "/api.github.com/") ||
+						strings.HasPrefix(path, "/gh/") ||
+						strings.HasPrefix(path, "/gitproxy/") {
+						return next(c)
+					}
+				}
+				target := "https://" + s.Hostname + c.Request().RequestURI
+				return c.Redirect(http.StatusMovedPermanently, target)
+			}
+		})
+	}
 
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
 		if c.Response().Committed {

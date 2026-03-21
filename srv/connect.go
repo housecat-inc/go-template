@@ -91,15 +91,11 @@ func (s *Server) oauthConfigForService(r *http.Request, service, level string) (
 }
 
 func (s *Server) serviceCallbackURL(r *http.Request, service string) string {
-	scheme := "https"
-	if r.TLS == nil && !strings.HasPrefix(r.Header.Get("X-Forwarded-Proto"), "https") {
-		scheme = "http"
-	}
 	provider := service
 	if googleServices[service] {
 		provider = "google"
 	}
-	return scheme + "://" + r.Host + "/connect/" + provider + "/callback"
+	return s.issuerURL(r) + "/connect/" + provider + "/callback"
 }
 
 func (s *Server) HandleConnectEnable(c echo.Context) error {

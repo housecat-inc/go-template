@@ -288,7 +288,7 @@ func (q *Queries) ListActivitiesByTarget(ctx context.Context, arg ListActivities
 const listVMCreators = `-- name: ListVMCreators :many
 SELECT a.object_id, a.created_at, a.metadata FROM activities a
 INNER JOIN (
-    SELECT object_id, MIN(id) AS min_id FROM activities
+    SELECT object_id, MAX(id) AS min_id FROM activities
     WHERE action = 'created_vm' AND object_type = 'vm'
     GROUP BY object_id
 ) b ON a.id = b.min_id

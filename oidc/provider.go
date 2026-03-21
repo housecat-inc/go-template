@@ -5,19 +5,22 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"log/slog"
+	"net/http"
 
 	"github.com/cockroachdb/errors"
 	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 // NewProvider creates an OIDC provider backed by the given database and signing key path.
-func NewProvider(issuer string, db *sql.DB, keyPath string, sessionSecret string) (op.OpenIDProvider, *Storage, op.Crypto, error) {
+// allowedIssuers maps hostnames to their full issuer URLs. Requests from unrecognized
+// hosts fall back to the primary issuer.
+func NewProvider(primaryIssuer string, allowedIssuers map[string]string, db *sql.DB, keyPath string, sessionSecret string) (op.OpenIDProvider, *Storage, op.Crypto, error) {
 	key, err := LoadOrGenerateSigningKey(keyPath)
 	if err != nil {
 		return nil, nil, nil, errors.Wrap(err, "load signing key")
 	}
 
-	loginURL := issuer + "/oidc/login"
+	loginURL := primaryIssuer + "/oidc/login"
 	storage := NewStorage(db, key, loginURL)
 
 	if sessionSecret == "" {
@@ -36,7 +39,16 @@ func NewProvider(issuer string, db *sql.DB, keyPath string, sessionSecret string
 		GrantTypeRefreshToken: true,
 	}
 
-	provider, err := op.NewOpenIDProvider(issuer, config, storage)
+	issuerFunc := func(insecure bool) (op.IssuerFromRequest, error) {
+		return func(r *http.Request) string {
+			if iss, ok := allowedIssuers[r.Host]; ok {
+				return iss
+			}
+			return primaryIssuer
+		}, nil
+	}
+
+	provider, err := op.NewProvider(config, storage, issuerFunc)
 	if err != nil {
 		return nil, nil, nil, errors.Wrap(err, "create oidc provider")
 	}

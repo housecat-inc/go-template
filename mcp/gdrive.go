@@ -326,6 +326,29 @@ func (c *GDriveClient) CreateFile(ctx context.Context, name, mimeType, content, 
 	return out, nil
 }
 
+type TrashFileOut struct {
+	ID string `json:"id"`
+}
+
+func (c *GDriveClient) TrashFile(ctx context.Context, fileID string) (TrashFileOut, error) {
+	var out TrashFileOut
+	payload := map[string]any{"trashed": true}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return out, errors.Wrap(err, "marshal payload")
+	}
+	raw, err := c.do(ctx, http.MethodPatch, "/files/"+url.PathEscape(fileID), nil, bytes.NewReader(data), "application/json")
+	if err != nil {
+		return out, errors.Wrap(err, "trash file")
+	}
+	var file GDriveFile
+	if err := json.Unmarshal(raw, &file); err != nil {
+		return out, errors.Wrap(err, "decode trashed file")
+	}
+	out.ID = file.ID
+	return out, nil
+}
+
 type ListPermissionsOut struct {
 	Permissions []GDrivePermission `json:"permissions"`
 }

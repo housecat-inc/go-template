@@ -269,11 +269,7 @@ func (s *Server) HandleAuthLogout(c echo.Context) error {
 }
 
 func (s *Server) callbackURL(r *http.Request) string {
-	scheme := "https"
-	if r.TLS == nil && !strings.HasPrefix(r.Header.Get("X-Forwarded-Proto"), "https") {
-		scheme = "http"
-	}
-	return scheme + "://" + r.Host + "/auth/google/callback"
+	return s.issuerURL(r) + "/auth/google/callback"
 }
 
 func loginURLForRequest(r *http.Request) string {

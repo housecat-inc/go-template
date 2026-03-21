@@ -47,7 +47,12 @@ func run() error {
 		SessionSecret: os.Getenv("SESSION_SECRET"),
 	}
 
-	server, err := srv.New("db.sqlite3", hostname, oauthCfg, os.Getenv("EXEDEV_KEY_PATH"))
+	var aliases []string
+	if v := os.Getenv("HOSTNAME_ALIASES"); v != "" {
+		aliases = strings.Split(v, ",")
+	}
+
+	server, err := srv.New("db.sqlite3", hostname, aliases, oauthCfg, os.Getenv("EXEDEV_KEY_PATH"))
 	if err != nil {
 		return errors.Wrap(err, "create server")
 	}

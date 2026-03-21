@@ -242,6 +242,83 @@ func (c *GCalClient) CreateEvent(ctx context.Context, calendarID, summary, descr
 	return out, nil
 }
 
+type UpdateEventIn struct {
+	Attendees   []string `json:"-"`
+	CalendarID  string   `json:"-"`
+	Description *string  `json:"-"`
+	End         string   `json:"-"`
+	EventID     string   `json:"-"`
+	Location    *string  `json:"-"`
+	Start       string   `json:"-"`
+	Summary     string   `json:"-"`
+}
+
+type UpdateEventOut = GCalEvent
+
+func (c *GCalClient) UpdateEvent(ctx context.Context, in UpdateEventIn) (UpdateEventOut, error) {
+	var out UpdateEventOut
+	calendarID := in.CalendarID
+	if calendarID == "" {
+		calendarID = "primary"
+	}
+
+	event := map[string]any{}
+	if in.Summary != "" {
+		event["summary"] = in.Summary
+	}
+	if in.Description != nil {
+		event["description"] = *in.Description
+	}
+	if in.Start != "" {
+		event["start"] = map[string]string{"dateTime": in.Start}
+	}
+	if in.End != "" {
+		event["end"] = map[string]string{"dateTime": in.End}
+	}
+	if in.Location != nil {
+		event["location"] = *in.Location
+	}
+	if in.Attendees != nil {
+		attendeeList := make([]map[string]string, len(in.Attendees))
+		for i, email := range in.Attendees {
+			attendeeList[i] = map[string]string{"email": email}
+		}
+		event["attendees"] = attendeeList
+	}
+
+	body, err := json.Marshal(event)
+	if err != nil {
+		return out, errors.Wrap(err, "marshal event")
+	}
+
+	data, err := c.do(ctx, http.MethodPatch, "/calendars/"+url.PathEscape(calendarID)+"/events/"+url.PathEscape(in.EventID), nil, bytes.NewReader(body), "application/json")
+	if err != nil {
+		return out, errors.Wrap(err, "update event")
+	}
+
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, errors.Wrap(err, "decode updated event")
+	}
+	return out, nil
+}
+
+type DeleteEventOut struct {
+	EventID string `json:"event_id"`
+}
+
+func (c *GCalClient) DeleteEvent(ctx context.Context, calendarID, eventID string) (DeleteEventOut, error) {
+	var out DeleteEventOut
+	if calendarID == "" {
+		calendarID = "primary"
+	}
+	_, err := c.do(ctx, http.MethodDelete, "/calendars/"+url.PathEscape(calendarID)+"/events/"+url.PathEscape(eventID), nil, nil, "")
+	if err != nil {
+		return out, errors.Wrap(err, "delete event")
+	}
+	out.EventID = eventID
+	return out, nil
+}
+
 type QuickAddOut = GCalEvent
 
 func (c *GCalClient) QuickAdd(ctx context.Context, calendarID, text string) (QuickAddOut, error) {

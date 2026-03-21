@@ -33,9 +33,10 @@ type GmailMessage struct {
 }
 
 type GmailMessagePart struct {
-	Body    *GmailMessageBody  `json:"body,omitempty"`
-	Headers []GmailHeader      `json:"headers,omitempty"`
-	Parts   []GmailMessagePart `json:"parts,omitempty"`
+	Body     *GmailMessageBody  `json:"body,omitempty"`
+	Headers  []GmailHeader      `json:"headers,omitempty"`
+	MimeType string             `json:"mimeType,omitempty"`
+	Parts    []GmailMessagePart `json:"parts,omitempty"`
 }
 
 type GmailMessageBody struct {
@@ -166,20 +167,54 @@ func extractHeaders(msg *GmailMessage) (from, to, subject, date string) {
 	return
 }
 
-func extractBody(part *GmailMessagePart) string {
+func decodeBodyData(part *GmailMessagePart) string {
+	if part == nil || part.Body == nil || part.Body.Data == "" {
+		return ""
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(part.Body.Data)
+	if err != nil {
+		return ""
+	}
+	return string(decoded)
+}
+
+func findPartByMime(part *GmailMessagePart, mimeType string) string {
 	if part == nil {
 		return ""
 	}
-	if part.Body != nil && part.Body.Data != "" {
-		decoded, err := base64.RawURLEncoding.DecodeString(part.Body.Data)
-		if err == nil {
-			return string(decoded)
-		}
+	if part.MimeType == mimeType {
+		return decodeBodyData(part)
 	}
 	for _, p := range part.Parts {
-		if text := extractBody(&p); text != "" {
+		if text := findPartByMime(&p, mimeType); text != "" {
 			return text
 		}
+	}
+	return ""
+}
+
+func stripHTMLTags(s string) string {
+	var out strings.Builder
+	inTag := false
+	for _, r := range s {
+		switch {
+		case r == '<':
+			inTag = true
+		case r == '>':
+			inTag = false
+		case !inTag:
+			out.WriteRune(r)
+		}
+	}
+	return strings.TrimSpace(out.String())
+}
+
+func extractBody(part *GmailMessagePart) string {
+	if text := findPartByMime(part, "text/plain"); text != "" {
+		return text
+	}
+	if html := findPartByMime(part, "text/html"); html != "" {
+		return stripHTMLTags(html)
 	}
 	return ""
 }
@@ -418,6 +453,7 @@ type CreateDraftIn struct {
 	Body        string `json:"body"`
 	Cc          string `json:"cc,omitempty"`
 	ContentType string `json:"contentType,omitempty"`
+	Footer      string `json:"-"`
 	Subject     string `json:"subject,omitempty"`
 	ThreadID    string `json:"threadId,omitempty"`
 	To          string `json:"to"`
@@ -469,12 +505,13 @@ func plainToHTML(body string) string {
 	return body
 }
 
-func buildRawMessage(to, subject, body, cc, bcc, contentType string, extraHeaders map[string]string) string {
+func buildRawMessage(to, subject, body, cc, bcc, contentType, footer string, extraHeaders map[string]string) string {
 	contentType = detectContentType(contentType, body)
 	if contentType == "text/plain" {
 		body = plainToHTML(body)
 		contentType = "text/html"
 	}
+	body += footer
 	var buf strings.Builder
 	if bcc != "" {
 		buf.WriteString("Bcc: " + sanitizeHeader(bcc) + "\r\n")
@@ -496,7 +533,7 @@ func buildRawMessage(to, subject, body, cc, bcc, contentType string, extraHeader
 func (c *GmailClient) CreateDraft(ctx context.Context, in CreateDraftIn) (CreateDraftOut, error) {
 	var out CreateDraftOut
 
-	raw := buildRawMessage(in.To, in.Subject, in.Body, in.Cc, in.Bcc, in.ContentType, nil)
+	raw := buildRawMessage(in.To, in.Subject, in.Body, in.Cc, in.Bcc, in.ContentType, in.Footer, nil)
 	encoded := base64.URLEncoding.EncodeToString([]byte(raw))
 
 	payload := map[string]any{
@@ -522,12 +559,60 @@ func (c *GmailClient) CreateDraft(ctx context.Context, in CreateDraftIn) (Create
 	return out, nil
 }
 
+type DeleteDraftOut struct {
+	DraftID string `json:"draft_id"`
+}
+
+func (c *GmailClient) DeleteDraft(ctx context.Context, draftID string) (DeleteDraftOut, error) {
+	var out DeleteDraftOut
+	_, err := c.do(ctx, http.MethodDelete, "/drafts/"+url.PathEscape(draftID), nil, nil, "")
+	if err != nil {
+		return out, errors.Wrap(err, "delete draft")
+	}
+	out.DraftID = draftID
+	return out, nil
+}
+
+type ModifyLabelsIn struct {
+	AddLabelIDs    []string `json:"addLabelIds,omitempty"`
+	MessageID      string   `json:"-"`
+	RemoveLabelIDs []string `json:"removeLabelIds,omitempty"`
+}
+
+type ModifyLabelsOut struct {
+	ID       string   `json:"id"`
+	LabelIDs []string `json:"label_ids"`
+}
+
+func (c *GmailClient) ModifyLabels(ctx context.Context, in ModifyLabelsIn) (ModifyLabelsOut, error) {
+	var out ModifyLabelsOut
+	payload := map[string]any{}
+	if len(in.AddLabelIDs) > 0 {
+		payload["addLabelIds"] = in.AddLabelIDs
+	}
+	if len(in.RemoveLabelIDs) > 0 {
+		payload["removeLabelIds"] = in.RemoveLabelIDs
+	}
+	data, err := c.post(ctx, "/messages/"+url.PathEscape(in.MessageID)+"/modify", nil, payload)
+	if err != nil {
+		return out, errors.Wrap(err, "modify labels")
+	}
+	var msg GmailMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return out, errors.Wrap(err, "decode modified message")
+	}
+	out.ID = msg.ID
+	out.LabelIDs = msg.Labels
+	return out, nil
+}
+
 type SendMessageIn struct {
 	Bcc         string `json:"bcc,omitempty"`
 	Body        string `json:"body,omitempty"`
 	Cc          string `json:"cc,omitempty"`
 	ContentType string `json:"contentType,omitempty"`
 	DraftID     string `json:"draftId,omitempty"`
+	Footer      string `json:"-"`
 	Subject     string `json:"subject,omitempty"`
 	ThreadID    string `json:"threadId,omitempty"`
 	To          string `json:"to,omitempty"`
@@ -583,6 +668,24 @@ func (c *GmailClient) SendDraft(ctx context.Context, draftID string) (SendMessag
 	return out, nil
 }
 
+type TrashMessageOut struct {
+	ID string `json:"id"`
+}
+
+func (c *GmailClient) TrashMessage(ctx context.Context, messageID string) (TrashMessageOut, error) {
+	var out TrashMessageOut
+	data, err := c.post(ctx, "/messages/"+url.PathEscape(messageID)+"/trash", nil, nil)
+	if err != nil {
+		return out, errors.Wrap(err, "trash message")
+	}
+	var msg GmailMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return out, errors.Wrap(err, "decode trashed message")
+	}
+	out.ID = msg.ID
+	return out, nil
+}
+
 func (c *GmailClient) SendMessage(ctx context.Context, in SendMessageIn) (SendMessageOut, error) {
 	var out SendMessageOut
 
@@ -591,7 +694,7 @@ func (c *GmailClient) SendMessage(ctx context.Context, in SendMessageIn) (SendMe
 		extraHeaders = c.getThreadReplyHeaders(ctx, in.ThreadID)
 	}
 
-	raw := buildRawMessage(in.To, in.Subject, in.Body, in.Cc, in.Bcc, in.ContentType, extraHeaders)
+	raw := buildRawMessage(in.To, in.Subject, in.Body, in.Cc, in.Bcc, in.ContentType, in.Footer, extraHeaders)
 	encoded := base64.URLEncoding.EncodeToString([]byte(raw))
 
 	payload := map[string]any{"raw": encoded}
