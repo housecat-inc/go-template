@@ -131,11 +131,12 @@ func run() error {
 	}
 	logger.Info("restarted service", "duration", time.Since(stepStart))
 
+	appURL := "https://" + customHostname
+	fmt.Println("==> Priming certificate...")
+	primeCert(appURL)
+
 	fmt.Println("==> Done")
-	fmt.Printf("    App:       %s\n", appName)
-	fmt.Printf("    Repo:      %s@%s\n", repo, branch)
-	fmt.Printf("    Client ID: %s\n", clientID)
-	_ = shell("systemctl", "status", "srv", "--no-pager")
+	fmt.Printf("    URL: %s\n", appURL)
 	return nil
 }
 
@@ -401,6 +402,17 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 	fmt.Printf("    git ls-remote: OK (%d refs)\n", lines)
 
 	return nil
+}
+
+func primeCert(appURL string) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(appURL)
+	if err != nil {
+		logger.Info("prime cert request sent", "url", appURL, "note", "TLS error expected on first request")
+		return
+	}
+	resp.Body.Close()
+	logger.Info("primed certificate", "url", appURL, "status", resp.StatusCode)
 }
 
 func hasScope(scopes, target string) bool {
