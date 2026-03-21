@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -406,15 +405,10 @@ func setupGitProxy(issuer, clientID, clientSecret string) error {
 }
 
 func primeCert(appURL string) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // lgtm[go/disabled-certificate-check] first request triggers certificate provisioning
-		},
-	}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(appURL)
 	if err != nil {
-		logger.Warn("prime cert request failed", "url", appURL, "error", err)
+		logger.Info("prime cert request sent", "url", appURL, "note", "TLS error expected on first request")
 		return
 	}
 	resp.Body.Close()
