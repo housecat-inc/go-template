@@ -1,0 +1,72 @@
+package pages
+
+import (
+	"github.com/housecat-inc/auth/ui/components/card"
+	"github.com/housecat-inc/auth/ui/components/icon"
+	"github.com/housecat-inc/auth/ui/layouts"
+)
+
+type UserVM struct {
+	AppURL string
+	Name   string
+	Status string
+}
+
+type VMsData struct {
+	IsAdmin   bool
+	LogoutURL string
+	UserEmail string
+	VMs       []UserVM
+}
+
+templ VMs(data VMsData) {
+	@layouts.Layout(layouts.NavData{
+		IsAdmin:   data.IsAdmin,
+		Title:     "Housecat Auth",
+		UserEmail: data.UserEmail,
+		LogoutURL: data.LogoutURL,
+	}) {
+		<div class="space-y-8">
+			<div>
+				<h1 class="text-4xl font-bold tracking-tight">Virtual Machines</h1>
+				<p class="text-lg text-muted-foreground mt-1">VMs you have access to</p>
+			</div>
+			@card.Card() {
+				@card.Content() {
+					if len(data.VMs) == 0 {
+						<p class="text-muted-foreground text-sm">No VMs found.</p>
+					} else {
+						<div class="space-y-4">
+							for _, vm := range data.VMs {
+								@userVMItem(vm)
+							}
+						</div>
+					}
+				}
+			}
+		</div>
+	}
+}
+
+templ userVMItem(vm UserVM) {
+	<div class="flex items-center justify-between p-4 border rounded-lg">
+		<div class="flex items-center gap-3">
+			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+				@icon.Server(icon.Props{Size: 18})
+			</div>
+			<div>
+				<div class="flex items-center gap-2">
+					<p class="font-medium">{ vm.Name }</p>
+					if vm.Status == "running" {
+						<div class="w-2 h-2 bg-green-500 rounded-full"></div>
+					}
+				</div>
+			</div>
+		</div>
+		if vm.AppURL != "" {
+			<a href={ templ.SafeURL(vm.AppURL) } target="_blank" class="text-sm text-muted-foreground hover:text-foreground px-3 py-1.5 rounded hover:bg-accent">
+				Open App
+			</a>
+		}
+	</div>
+}

@@ -118,6 +118,16 @@ templ Sidebar(nav NavData) {
 					@icon.Server(icon.Props{Size: 16})
 					VMs
 				}
+			} else if nav.UserEmail != "" {
+				@button.Button(button.Props{
+					Variant:   button.VariantGhost,
+					FullWidth: true,
+					Class:     "justify-start",
+					Href:      "/vms",
+				}) {
+					@icon.Server(icon.Props{Size: 16})
+					VMs
+				}
 			}
 			@button.Button(button.Props{
 				Variant:   button.VariantGhost,

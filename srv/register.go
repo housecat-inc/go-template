@@ -197,6 +197,10 @@ func (s *Server) HandleRegister(c echo.Context) error {
 		return errors.Wrap(err, "insert client")
 	}
 
+	if err := syncClientAccess(ctx, q, client.ID, allowedDomain, allowedEmails); err != nil {
+		return errors.Wrap(err, "sync client access")
+	}
+
 	// Single-use: delete the registration token
 	_ = q.DeleteAccessToken(ctx, tokenID)
 

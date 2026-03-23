@@ -216,6 +216,7 @@ func (s *Server) Serve(addr string) error {
 	e.GET("/settings", s.HandleSettings, s.RequireAuth)
 	e.POST("/settings", s.HandleSettingsUpdate, s.RequireAuth)
 	e.GET("/profile", s.HandleProfile, s.RequireAuth)
+	e.GET("/vms", s.HandleVMs, s.RequireAuth)
 	e.GET("/auth/exedev", s.HandleAuthExeDev)
 	if s.oauth2Config != nil {
 		e.GET("/auth/google", s.HandleAuthGoogle)

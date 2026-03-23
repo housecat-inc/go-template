@@ -21,6 +21,12 @@ type Activity struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type ClientAccess struct {
+	ClientID int64  `json:"client_id"`
+	Domain   string `json:"domain"`
+	Email    string `json:"email"`
+}
+
 type OauthToken struct {
 	ID           int64      `json:"id"`
 	AccessToken  string     `json:"access_token"`

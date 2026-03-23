@@ -1,6 +1,7 @@
 package srv
 
 import (
+	"context"
 	stderrors "errors"
 	"fmt"
 	"log/slog"
@@ -93,6 +94,10 @@ func (s *Server) HandleClientsCreate(c echo.Context) error {
 	})
 	if err != nil {
 		return errors.Wrap(err, "insert client")
+	}
+
+	if err := syncClientAccess(ctx, q, client.ID, allowedDomain, allowedEmails); err != nil {
+		return errors.Wrap(err, "sync client access")
 	}
 
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
@@ -219,6 +224,10 @@ func (s *Server) HandleClientsUpdate(c echo.Context) error {
 		return errors.Wrap(err, "update client")
 	}
 
+	if err := syncClientAccess(ctx, q, id, allowedDomain, allowedEmails); err != nil {
+		return errors.Wrap(err, "sync client access")
+	}
+
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 		ActorID:    subject,
 		ActorType:  "user",
@@ -265,6 +274,10 @@ func (s *Server) HandleClientsArchive(c echo.Context) error {
 		return errors.Wrap(err, "archive client")
 	}
 
+	if err := q.DeleteClientAccessByClientID(ctx, id); err != nil {
+		slog.Warn("delete client access on archive", "error", err)
+	}
+
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 		ActorID:    subject,
 		ActorType:  "user",
@@ -294,6 +307,36 @@ func validateScopes(submitted []string) (string, error) {
 		valid = append(valid, s)
 	}
 	return strings.Join(valid, ","), nil
+}
+
+func syncClientAccess(ctx context.Context, q *dbgen.Queries, clientID int64, domain, emails string) error {
+	if err := q.DeleteClientAccessByClientID(ctx, clientID); err != nil {
+		return errors.Wrap(err, "delete client access")
+	}
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain != "" {
+		if err := q.InsertClientAccess(ctx, dbgen.InsertClientAccessParams{
+			ClientID: clientID,
+			Domain:   domain,
+		}); err != nil {
+			return errors.Wrap(err, "insert client access domain")
+		}
+	}
+	if emails != "" {
+		for _, email := range strings.Split(emails, ",") {
+			email = strings.ToLower(strings.TrimSpace(email))
+			if email == "" {
+				continue
+			}
+			if err := q.InsertClientAccess(ctx, dbgen.InsertClientAccessParams{
+				ClientID: clientID,
+				Email:    email,
+			}); err != nil {
+				return errors.Wrap(err, "insert client access email")
+			}
+		}
+	}
+	return nil
 }
 
 func normalizeEmailList(s string) string {

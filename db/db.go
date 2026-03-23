@@ -7,6 +7,8 @@ import (
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
+
+	_ "github.com/housecat-inc/auth/db/migrations"
 )
 
 //go:generate go tool github.com/sqlc-dev/sqlc/cmd/sqlc generate
