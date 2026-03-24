@@ -1264,7 +1264,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_read_message",
-		Description: "Read the full content of a Gmail message by ID. Requires Gmail read connection.",
+		Description: "Read the full content of a Gmail message by ID. Returns attachment metadata (attachment_id, filename, mime_type, size) when present — use gmail_get_attachment to download content. Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		MessageID string `json:"message_id" jsonschema:"Gmail message ID"`
 	}) (*gomcp.CallToolResult, any, error) {
@@ -1276,6 +1276,31 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 			return errResult(err.Error())
 		}
 		out, err := client.ReadMessage(ctx, input.MessageID)
+		if err != nil {
+			return errResult(err.Error())
+		}
+		result, err := textResult(out)
+		return result, nil, err
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_get_attachment",
+		Description: "Download an attachment from a Gmail message. Use gmail_read_message first to get the attachment_id. Returns base64url-encoded content. Requires Gmail read connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		AttachmentID string `json:"attachment_id" jsonschema:"Attachment ID from gmail_read_message response"`
+		MessageID    string `json:"message_id" jsonschema:"Gmail message ID containing the attachment"`
+	}) (*gomcp.CallToolResult, any, error) {
+		if input.MessageID == "" {
+			return errResult("message_id is required")
+		}
+		if input.AttachmentID == "" {
+			return errResult("attachment_id is required")
+		}
+		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := client.GetAttachment(ctx, input.MessageID, input.AttachmentID)
 		if err != nil {
 			return errResult(err.Error())
 		}
@@ -1325,15 +1350,16 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_create_draft",
-		Description: "Create a draft email for review before sending. Requires Gmail draft connection.",
+		Description: "Create a draft email for review before sending. Supports file attachments via base64-encoded content. Requires Gmail draft connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Bcc         string `json:"bcc,omitempty" jsonschema:"BCC recipient email address"`
-		Body        string `json:"body" jsonschema:"Email body text"`
-		Cc          string `json:"cc,omitempty" jsonschema:"CC recipient email address"`
-		ContentType string `json:"content_type,omitempty" jsonschema:"MIME type for body (default text/plain)"`
-		Subject     string `json:"subject,omitempty" jsonschema:"Email subject line (required unless threadId is provided)"`
-		ThreadID    string `json:"thread_id,omitempty" jsonschema:"Thread ID to associate draft with"`
-		To          string `json:"to" jsonschema:"Recipient email address"`
+		Attachments []Attachment `json:"attachments,omitempty" jsonschema:"File attachments. Each needs filename and base64-encoded content, optionally mime_type."`
+		Bcc         string       `json:"bcc,omitempty" jsonschema:"BCC recipient email address"`
+		Body        string       `json:"body" jsonschema:"Email body text"`
+		Cc          string       `json:"cc,omitempty" jsonschema:"CC recipient email address"`
+		ContentType string       `json:"content_type,omitempty" jsonschema:"MIME type for body (default text/plain)"`
+		Subject     string       `json:"subject,omitempty" jsonschema:"Email subject line (required unless threadId is provided)"`
+		ThreadID    string       `json:"thread_id,omitempty" jsonschema:"Thread ID to associate draft with"`
+		To          string       `json:"to" jsonschema:"Recipient email address"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.To == "" {
 			return errResult("to is required")
@@ -1349,6 +1375,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 			return errResult(err.Error())
 		}
 		out, err := client.CreateDraft(ctx, CreateDraftIn{
+			Attachments: input.Attachments,
 			Bcc:         input.Bcc,
 			Body:        input.Body,
 			Cc:          input.Cc,
@@ -1429,16 +1456,17 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_send_message",
-		Description: "Send an email via Gmail. Either send an existing draft by draftId, or compose a new message with to+body. Requires Gmail write connection.",
+		Description: "Send an email via Gmail. Either send an existing draft by draftId, or compose a new message with to+body. Supports file attachments via base64-encoded content. Requires Gmail write connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Bcc         string `json:"bcc,omitempty" jsonschema:"BCC recipients, comma-separated"`
-		Body        string `json:"body,omitempty" jsonschema:"Email body content (required without draftId)"`
-		Cc          string `json:"cc,omitempty" jsonschema:"CC recipients, comma-separated"`
-		ContentType string `json:"content_type,omitempty" jsonschema:"text/plain or text/html (default text/plain)"`
-		DraftID     string `json:"draft_id,omitempty" jsonschema:"Draft ID to send (provide this OR to+body)"`
-		Subject     string `json:"subject,omitempty" jsonschema:"Subject line (required without draftId unless threadId provided)"`
-		ThreadID    string `json:"thread_id,omitempty" jsonschema:"Thread ID to send as a reply"`
-		To          string `json:"to,omitempty" jsonschema:"Recipient(s), comma-separated (required without draftId)"`
+		Attachments []Attachment `json:"attachments,omitempty" jsonschema:"File attachments. Each needs filename and base64-encoded content, optionally mime_type."`
+		Bcc         string       `json:"bcc,omitempty" jsonschema:"BCC recipients, comma-separated"`
+		Body        string       `json:"body,omitempty" jsonschema:"Email body content (required without draftId)"`
+		Cc          string       `json:"cc,omitempty" jsonschema:"CC recipients, comma-separated"`
+		ContentType string       `json:"content_type,omitempty" jsonschema:"text/plain or text/html (default text/plain)"`
+		DraftID     string       `json:"draft_id,omitempty" jsonschema:"Draft ID to send (provide this OR to+body)"`
+		Subject     string       `json:"subject,omitempty" jsonschema:"Subject line (required without draftId unless threadId provided)"`
+		ThreadID    string       `json:"thread_id,omitempty" jsonschema:"Thread ID to send as a reply"`
+		To          string       `json:"to,omitempty" jsonschema:"Recipient(s), comma-separated (required without draftId)"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.DraftID != "" {
 			if input.To != "" || input.Body != "" {
@@ -1469,6 +1497,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 			return errResult(err.Error())
 		}
 		out, err := client.SendMessage(ctx, SendMessageIn{
+			Attachments: input.Attachments,
 			Bcc:         input.Bcc,
 			Body:        input.Body,
 			Cc:          input.Cc,
