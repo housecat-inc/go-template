@@ -16,8 +16,9 @@ import (
 )
 
 type ClientsFormData struct {
-	Client          *dbgen.OidcClient
+	Access          ClientAccessInfo
 	AvailableScopes []string
+	Client          *dbgen.OidcClient
 	LogoutURL       string
 	SelectedScopes  map[string]bool
 	UserEmail       string
@@ -143,7 +144,7 @@ templ clientsFormFields(data ClientsFormData) {
 				ID:          "client-allowed-domain",
 				Name:        "allowed_domain",
 				Placeholder: "housecat.com",
-				Value:       clientFormAllowedDomain(data.Client),
+				Value:       clientFormAllowedDomain(data.Client, data.Access),
 			})
 			<p class="text-sm text-muted-foreground mt-1">Users with this email domain are allowed. Leave empty for no domain restriction.</p>
 		}
@@ -155,7 +156,7 @@ templ clientsFormFields(data ClientsFormData) {
 				ID:          "client-allowed-emails",
 				Name:        "allowed_emails",
 				Placeholder: "guest@example.com\nanother@example.com",
-				Value:       clientFormAllowedEmails(data.Client),
+				Value:       clientFormAllowedEmails(data.Access),
 				Rows:        3,
 			})
 			<p class="text-sm text-muted-foreground mt-1">Additional individual emails to allow. One per line.</p>
@@ -181,18 +182,15 @@ templ clientsFormFields(data ClientsFormData) {
 	</div>
 }
 
-func clientFormAllowedDomain(client *dbgen.OidcClient) string {
+func clientFormAllowedDomain(client *dbgen.OidcClient, access ClientAccessInfo) string {
 	if client != nil {
-		return client.AllowedDomain
+		return access.Domain
 	}
 	return "housecat.com"
 }
 
-func clientFormAllowedEmails(client *dbgen.OidcClient) string {
-	if client != nil {
-		return strings.ReplaceAll(client.AllowedEmails, ",", "\n")
-	}
-	return ""
+func clientFormAllowedEmails(access ClientAccessInfo) string {
+	return strings.Join(access.Emails, "\n")
 }
 
 func clientFormName(client *dbgen.OidcClient) string {

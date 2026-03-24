@@ -114,11 +114,13 @@ func (s *Server) HandleAdminVMs(c echo.Context) error {
 	clients := map[string]pages.VMClientInfo{}
 	if s.DB != nil {
 		q := dbgen.New(s.DB)
+		accessMap := loadAllClientAccess(ctx, q)
 		if rows, err := q.ListOidcClients(ctx); err == nil {
 			for _, c := range rows {
+				access := accessMap[c.ID]
 				clients[c.Name] = pages.VMClientInfo{
-					AllowedDomain:   c.AllowedDomain,
-					AllowedEmails:   c.AllowedEmails,
+					AllowedDomain:   access.Domain,
+					AllowedEmails:   access.Emails,
 					HasCustomDomain: strings.Contains(c.RedirectUris, ".vm.housecat.io"),
 					ID:              c.ID,
 				}

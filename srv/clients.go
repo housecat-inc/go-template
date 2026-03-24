@@ -33,10 +33,11 @@ func (s *Server) HandleClients(c echo.Context) error {
 	count, _ := q.CountOidcClients(ctx)
 
 	data := pages.ClientsListData{
-		ClientCount:  count,
-		Clients:      clients,
-		LogoutURL: logoutURL,
-		UserEmail: userEmail,
+		Access:      loadAllClientAccess(ctx, q),
+		ClientCount: count,
+		Clients:     clients,
+		LogoutURL:   logoutURL,
+		UserEmail:   userEmail,
 	}
 	return pages.ClientsList(data).Render(ctx, c.Response())
 }
@@ -83,14 +84,12 @@ func (s *Server) HandleClientsCreate(c echo.Context) error {
 
 	q := dbgen.New(s.DB)
 	client, err := q.InsertOidcClient(ctx, dbgen.InsertOidcClientParams{
-		AllowedDomain: allowedDomain,
-		AllowedEmails: allowedEmails,
-		ClientID:      clientID,
-		ClientSecret:  clientSecret,
-		Name:          name,
-		RedirectUris:  redirectURIs,
-		Scopes:        scopes,
-		CreatedBy:     subject,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Name:         name,
+		RedirectUris: redirectURIs,
+		Scopes:       scopes,
+		CreatedBy:    subject,
 	})
 	if err != nil {
 		return errors.Wrap(err, "insert client")
@@ -149,6 +148,7 @@ func (s *Server) HandleClientsView(c echo.Context) error {
 	}
 
 	data := pages.ClientsViewData{
+		Access:     loadClientAccess(ctx, q, client.ID),
 		Activities: activityEntries,
 		Client:     client,
 		LogoutURL:  logoutURL,
@@ -179,9 +179,12 @@ func (s *Server) HandleClientsEdit(c echo.Context) error {
 		selectedScopes[s] = true
 	}
 
+	access := loadClientAccess(ctx, q, client.ID)
+
 	data := pages.ClientsFormData{
-		Client:          &client,
+		Access:          access,
 		AvailableScopes: availableScopes,
+		Client:          &client,
 		LogoutURL:       logoutURL,
 		SelectedScopes:  selectedScopes,
 		UserEmail:       userEmail,
@@ -214,12 +217,10 @@ func (s *Server) HandleClientsUpdate(c echo.Context) error {
 
 	q := dbgen.New(s.DB)
 	if err := q.UpdateOidcClient(ctx, dbgen.UpdateOidcClientParams{
-		AllowedDomain: allowedDomain,
-		AllowedEmails: allowedEmails,
-		ID:            id,
-		Name:          name,
-		RedirectUris:  redirectURIs,
-		Scopes:        scopes,
+		ID:           id,
+		Name:         name,
+		RedirectUris: redirectURIs,
+		Scopes:       scopes,
 	}); err != nil {
 		return errors.Wrap(err, "update client")
 	}
@@ -307,6 +308,44 @@ func validateScopes(submitted []string) (string, error) {
 		valid = append(valid, s)
 	}
 	return strings.Join(valid, ","), nil
+}
+
+func loadAllClientAccess(ctx context.Context, q *dbgen.Queries) map[int64]pages.ClientAccessInfo {
+	out := map[int64]pages.ClientAccessInfo{}
+	rows, err := q.ListAllClientAccess(ctx)
+	if err != nil {
+		slog.Error("load all client access", "error", err)
+		return out
+	}
+	for _, r := range rows {
+		info := out[r.ClientID]
+		if r.Domain != "" {
+			info.Domain = r.Domain
+		}
+		if r.Email != "" {
+			info.Emails = append(info.Emails, r.Email)
+		}
+		out[r.ClientID] = info
+	}
+	return out
+}
+
+func loadClientAccess(ctx context.Context, q *dbgen.Queries, clientID int64) pages.ClientAccessInfo {
+	var info pages.ClientAccessInfo
+	rows, err := q.ListClientAccessByClientID(ctx, clientID)
+	if err != nil {
+		slog.Error("load client access", "client_id", clientID, "error", err)
+		return info
+	}
+	for _, r := range rows {
+		if r.Domain != "" {
+			info.Domain = r.Domain
+		}
+		if r.Email != "" {
+			info.Emails = append(info.Emails, r.Email)
+		}
+	}
+	return info
 }
 
 func syncClientAccess(ctx context.Context, q *dbgen.Queries, clientID int64, domain, emails string) error {

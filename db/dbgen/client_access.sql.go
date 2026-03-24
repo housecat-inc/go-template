@@ -33,8 +33,64 @@ func (q *Queries) InsertClientAccess(ctx context.Context, arg InsertClientAccess
 	return err
 }
 
+const listAllClientAccess = `-- name: ListAllClientAccess :many
+SELECT client_id, domain, email FROM client_access
+ORDER BY client_id, domain ASC, email ASC
+`
+
+func (q *Queries) ListAllClientAccess(ctx context.Context) ([]ClientAccess, error) {
+	rows, err := q.db.QueryContext(ctx, listAllClientAccess)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ClientAccess{}
+	for rows.Next() {
+		var i ClientAccess
+		if err := rows.Scan(&i.ClientID, &i.Domain, &i.Email); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClientAccessByClientID = `-- name: ListClientAccessByClientID :many
+SELECT client_id, domain, email FROM client_access WHERE client_id = ?
+ORDER BY domain ASC, email ASC
+`
+
+func (q *Queries) ListClientAccessByClientID(ctx context.Context, clientID int64) ([]ClientAccess, error) {
+	rows, err := q.db.QueryContext(ctx, listClientAccessByClientID, clientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ClientAccess{}
+	for rows.Next() {
+		var i ClientAccess
+		if err := rows.Scan(&i.ClientID, &i.Domain, &i.Email); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOidcClientsByAccess = `-- name: ListOidcClientsByAccess :many
-SELECT DISTINCT c.id, c.client_id, c.client_secret, c.name, c.redirect_uris, c.post_logout_redirect_uris, c.application_type, c.auth_method, c.response_types, c.grant_types, c.access_token_type, c.scopes, c.created_by, c.archived_at, c.created_at, c.updated_at, c.allowed_domain, c.allowed_emails FROM oidc_clients c
+SELECT DISTINCT c.id, c.client_id, c.client_secret, c.name, c.redirect_uris, c.post_logout_redirect_uris, c.application_type, c.auth_method, c.response_types, c.grant_types, c.access_token_type, c.scopes, c.created_by, c.archived_at, c.created_at, c.updated_at FROM oidc_clients c
 JOIN client_access ca ON ca.client_id = c.id
 WHERE (ca.email = ? OR ca.domain = ?)
 AND c.archived_at IS NULL
@@ -72,8 +128,6 @@ func (q *Queries) ListOidcClientsByAccess(ctx context.Context, arg ListOidcClien
 			&i.ArchivedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.AllowedDomain,
-			&i.AllowedEmails,
 		); err != nil {
 			return nil, err
 		}

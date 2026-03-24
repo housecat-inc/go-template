@@ -16,6 +16,7 @@ import (
 )
 
 type ClientsViewData struct {
+	Access     ClientAccessInfo
 	Activities []ActivityEntry
 	Client     dbgen.OidcClient
 	LogoutURL  string
@@ -164,9 +165,9 @@ templ ClientsView(data ClientsViewData) {
 							<div class="flex justify-between">
 								<dt class="text-muted-foreground">Allowed Domain</dt>
 								<dd class="font-medium">
-									if data.Client.AllowedDomain != "" {
+									if data.Access.Domain != "" {
 										@badge.Badge(badge.Props{Variant: badge.VariantSecondary}) {
-											{ "@" + data.Client.AllowedDomain }
+											{ "@" + data.Access.Domain }
 										}
 									} else {
 										<span class="text-muted-foreground">None</span>
@@ -176,10 +177,9 @@ templ ClientsView(data ClientsViewData) {
 							<div>
 								<dt class="text-muted-foreground mb-2">Allowed Emails</dt>
 								<dd>
-									if data.Client.AllowedEmails != "" {
-										{{ emails := splitCommaTempl(data.Client.AllowedEmails) }}
+									if len(data.Access.Emails) > 0 {
 										<div class="flex flex-wrap gap-1">
-											for _, email := range emails {
+											for _, email := range data.Access.Emails {
 												@badge.Badge(badge.Props{Variant: badge.VariantOutline}) {
 													{ email }
 												}
@@ -190,7 +190,7 @@ templ ClientsView(data ClientsViewData) {
 									}
 								</dd>
 							</div>
-							if data.Client.AllowedDomain == "" && data.Client.AllowedEmails == "" {
+							if data.Access.Domain == "" && len(data.Access.Emails) == 0 {
 								<div class="pt-2">
 									@badge.Badge(badge.Props{Variant: badge.VariantDefault}) {
 										Open Access

@@ -15,11 +15,17 @@ import (
 	"github.com/housecat-inc/auth/ui/layouts"
 )
 
+type ClientAccessInfo struct {
+	Domain string
+	Emails []string
+}
+
 type ClientsListData struct {
-	ClientCount  int64
-	Clients      []dbgen.OidcClient
-	LogoutURL string
-	UserEmail string
+	Access      map[int64]ClientAccessInfo
+	ClientCount int64
+	Clients     []dbgen.OidcClient
+	LogoutURL   string
+	UserEmail   string
 }
 
 templ ClientsList(data ClientsListData) {
@@ -63,7 +69,7 @@ templ ClientsList(data ClientsListData) {
 					} else {
 						<div class="space-y-4">
 							for _, client := range data.Clients {
-								@clientsListItem(client)
+								@clientsListItem(client, data.Access[client.ID])
 							}
 						</div>
 					}
@@ -88,33 +94,32 @@ templ clientsStatsCard(title, value, subtitle string, iconComponent templ.Compon
 	}
 }
 
-func accessSummaryText(client dbgen.OidcClient) string {
-	hasDomain := client.AllowedDomain != ""
-	emails := splitCommaTempl(client.AllowedEmails)
-	count := len(emails)
+func accessSummaryText(info ClientAccessInfo) string {
+	hasDomain := info.Domain != ""
+	count := len(info.Emails)
 	if !hasDomain && count == 0 {
 		return "open access"
 	}
 	if hasDomain && count == 0 {
-		return "@" + client.AllowedDomain
+		return "@" + info.Domain
 	}
 	if !hasDomain {
 		if count <= 2 {
-			return strings.Join(emails, ", ")
+			return strings.Join(info.Emails, ", ")
 		}
 		return fmt.Sprintf("%d emails", count)
 	}
 	if count <= 2 {
-		return "@" + client.AllowedDomain + " + " + strings.Join(emails, ", ")
+		return "@" + info.Domain + " + " + strings.Join(info.Emails, ", ")
 	}
-	return fmt.Sprintf("@%s + %d more", client.AllowedDomain, count)
+	return fmt.Sprintf("@%s + %d more", info.Domain, count)
 }
 
-templ clientAccessSummary(client dbgen.OidcClient) {
-	<span class="text-xs">{ accessSummaryText(client) }</span>
+templ clientAccessSummary(info ClientAccessInfo) {
+	<span class="text-xs">{ accessSummaryText(info) }</span>
 }
 
-templ clientsListItem(client dbgen.OidcClient) {
+templ clientsListItem(client dbgen.OidcClient, access ClientAccessInfo) {
 	{{ scopes := splitCommaTempl(client.Scopes) }}
 	<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg gap-3">
 		<div class="flex items-center gap-3">
@@ -130,7 +135,7 @@ templ clientsListItem(client dbgen.OidcClient) {
 						title={ client.CreatedAt.Format(time.RFC3339) }
 					>{ relativeTime(client.CreatedAt) }</span>
 					<span>&middot;</span>
-					@clientAccessSummary(client)
+					@clientAccessSummary(access)
 				</div>
 			</div>
 		</div>

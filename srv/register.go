@@ -182,16 +182,14 @@ func (s *Server) HandleRegister(c echo.Context) error {
 	allowedEmails := strings.Join(req.AllowedEmails, ",")
 
 	client, err := q.InsertOidcClientFull(ctx, dbgen.InsertOidcClientFullParams{
-		AllowedDomain: allowedDomain,
-		AllowedEmails: allowedEmails,
-		ClientID:      clientID,
-		ClientSecret:  clientSecret,
-		Name:          req.ClientName,
-		RedirectUris:  strings.Join(req.RedirectURIs, ","),
-		Scopes:        internalScopes,
-		AuthMethod:    req.TokenEndpointAuthMethod,
-		GrantTypes:    strings.Join(req.GrantTypes, ","),
-		CreatedBy:     token.Subject,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Name:         req.ClientName,
+		RedirectUris: strings.Join(req.RedirectURIs, ","),
+		Scopes:       internalScopes,
+		AuthMethod:   req.TokenEndpointAuthMethod,
+		GrantTypes:   strings.Join(req.GrantTypes, ","),
+		CreatedBy:    token.Subject,
 	})
 	if err != nil {
 		return errors.Wrap(err, "insert client")

@@ -12,6 +12,11 @@ import (
 	"github.com/housecat-inc/auth/ui/blocks/auth"
 )
 
+func emailDomain(email string) string {
+	_, domain, _ := strings.Cut(email, "@")
+	return strings.ToLower(domain)
+}
+
 // SessionResolver looks up the current user session.
 // Returns userID, email, error.
 type SessionResolver func(r *http.Request) (string, string, error)
@@ -59,7 +64,24 @@ func LoginHandler(storage *Storage, provider op.OpenIDProvider, resolveSession S
 				return echo.NewHTTPError(http.StatusBadRequest, "unknown client")
 			}
 
-			if !CheckAccess(email, client.AllowedDomain, client.AllowedEmails) {
+			email = strings.ToLower(strings.TrimSpace(email))
+			domain := emailDomain(email)
+			rules, err := storage.q().ListClientAccessByClientID(r.Context(), client.ID)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "access check failed")
+			}
+			matched := false
+			if len(rules) == 0 {
+				matched = domain == "housecat.com"
+			} else {
+				for _, rule := range rules {
+					if rule.Email == email || rule.Domain == domain {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
 				return echo.NewHTTPError(http.StatusForbidden, "you don't have access to this application")
 			}
 		}
