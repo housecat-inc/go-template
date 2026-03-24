@@ -135,7 +135,7 @@ templ clientsFormFields(data ClientsFormData) {
 	</div>
 	<div class="space-y-4">
 		<h3 class="text-lg font-semibold">Access Control</h3>
-		<p class="text-sm text-muted-foreground">Restrict who can authenticate. Domain and email list are combined — a user matching either is allowed.</p>
+		<p class="text-sm text-muted-foreground">Restrict who can authenticate. Domain and email list are combined — a user matching either is allowed. Set domain to <code>*</code> to allow open access.</p>
 		@form.Item() {
 			@label.Label(label.Props{For: "client-allowed-domain"}) {
 				Allowed Domain
@@ -146,7 +146,7 @@ templ clientsFormFields(data ClientsFormData) {
 				Placeholder: "housecat.com",
 				Value:       clientFormAllowedDomain(data.Client, data.Access),
 			})
-			<p class="text-sm text-muted-foreground mt-1">Users with this email domain are allowed. Leave empty for no domain restriction.</p>
+			<p class="text-sm text-muted-foreground mt-1">Users with this email domain are allowed. Use <code>*</code> { "for" } open access, or leave empty to default to { "@housecat.com" }.</p>
 		}
 		@form.Item() {
 			@label.Label(label.Props{For: "client-allowed-emails"}) {

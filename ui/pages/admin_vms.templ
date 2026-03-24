@@ -261,15 +261,17 @@ templ adminVMItem(vm exedev.VM, creator VMCreator, client VMClientInfo) {
 				<p class="text-sm text-muted-foreground truncate">
 					if client.ID > 0 {
 						<a href={ templ.SafeURL(fmt.Sprintf("/admin/clients/%d", client.ID)) } class="hover:text-foreground underline underline-offset-2">
-							if len(client.AllowedEmails) > 0 {
+							if client.AllowedDomain == "*" {
+								open
+							} else if len(client.AllowedEmails) > 0 {
 								{ client.AllowedEmails[0] }
 								if len(client.AllowedEmails) > 1 {
 									{ fmt.Sprintf("+%d", len(client.AllowedEmails)-1) }
 								}
 							} else if client.AllowedDomain != "" {
-								{ client.AllowedDomain }
+								{ "@" + client.AllowedDomain }
 							} else {
-								open
+								{ "@housecat.com" }
 							}
 						</a>
 						 ·

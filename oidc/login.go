@@ -75,7 +75,7 @@ func LoginHandler(storage *Storage, provider op.OpenIDProvider, resolveSession S
 				matched = domain == "housecat.com"
 			} else {
 				for _, rule := range rules {
-					if rule.Email == email || rule.Domain == domain {
+					if rule.Domain == "*" || rule.Email == email || rule.Domain == domain {
 						matched = true
 						break
 					}

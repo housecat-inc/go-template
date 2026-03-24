@@ -15,6 +15,6 @@ ORDER BY client_id, domain ASC, email ASC;
 -- name: ListOidcClientsByAccess :many
 SELECT DISTINCT c.* FROM oidc_clients c
 JOIN client_access ca ON ca.client_id = c.id
-WHERE (ca.email = ? OR ca.domain = ?)
+WHERE (ca.email = ? OR ca.domain = ? OR ca.domain = '*')
 AND c.archived_at IS NULL
 ORDER BY c.created_at DESC;

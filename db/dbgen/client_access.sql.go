@@ -92,7 +92,7 @@ func (q *Queries) ListClientAccessByClientID(ctx context.Context, clientID int64
 const listOidcClientsByAccess = `-- name: ListOidcClientsByAccess :many
 SELECT DISTINCT c.id, c.client_id, c.client_secret, c.name, c.redirect_uris, c.post_logout_redirect_uris, c.application_type, c.auth_method, c.response_types, c.grant_types, c.access_token_type, c.scopes, c.created_by, c.archived_at, c.created_at, c.updated_at FROM oidc_clients c
 JOIN client_access ca ON ca.client_id = c.id
-WHERE (ca.email = ? OR ca.domain = ?)
+WHERE (ca.email = ? OR ca.domain = ? OR ca.domain = '*')
 AND c.archived_at IS NULL
 ORDER BY c.created_at DESC
 `

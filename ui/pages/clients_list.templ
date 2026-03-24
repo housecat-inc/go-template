@@ -95,10 +95,13 @@ templ clientsStatsCard(title, value, subtitle string, iconComponent templ.Compon
 }
 
 func accessSummaryText(info ClientAccessInfo) string {
+	if info.Domain == "*" {
+		return "open access"
+	}
 	hasDomain := info.Domain != ""
 	count := len(info.Emails)
 	if !hasDomain && count == 0 {
-		return "open access"
+		return "@housecat.com (default)"
 	}
 	if hasDomain && count == 0 {
 		return "@" + info.Domain
