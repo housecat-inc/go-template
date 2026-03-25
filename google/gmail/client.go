@@ -17,26 +17,26 @@ import (
 )
 
 const (
-	defaultBaseURL       = "https://gmail.googleapis.com/gmail/v1/users/me"
+	batchBaseURL          = "https://www.googleapis.com/batch/gmail/v1"
+	defaultBaseURL        = "https://gmail.googleapis.com/gmail/v1/users/me"
 	htmlBodyTruncateLimit = 20000
+	lowValueHTMLDiffMin   = 80
 	maxBatchSize          = 25
+	requestDelay          = 100 // milliseconds between sequential fallback requests
 )
 
 var (
 	lowValuePlaceholders = []string{
+		"your client does not support html",
 		"view this email in your browser",
-		"view this message in your browser",
-		"having trouble viewing this email",
-		"click here to view",
-		"view as web page",
-		"view in browser",
-		"view online",
+		"open this email in your browser",
 	}
 	lowValueFooterMarkers = []string{
+		"mailing list",
+		"mailman/listinfo",
 		"unsubscribe",
+		"list-unsubscribe",
 		"manage preferences",
-		"opt out",
-		"email preferences",
 	}
 	metadataHeaders = []string{
 		"Cc",
@@ -242,6 +242,190 @@ func (c *Client) del(ctx context.Context, path string) (json.RawMessage, error) 
 	return c.do(ctx, http.MethodDelete, path, nil, nil, "")
 }
 
+type batchRequest struct {
+	ID    string
+	Path  string
+	Query url.Values
+}
+
+type batchResponse struct {
+	ID     string
+	Data   json.RawMessage
+	Err    error
+	Status int
+}
+
+func (c *Client) batchURL() string {
+	if c.BaseURL != "" {
+		return c.BaseURL + "/batch"
+	}
+	return batchBaseURL
+}
+
+func (c *Client) batch(ctx context.Context, reqs []batchRequest) ([]batchResponse, error) {
+	boundary := fmt.Sprintf("batch_%d", time.Now().UnixNano())
+	var buf bytes.Buffer
+
+	apiBase := "https://www.googleapis.com/gmail/v1/users/me"
+	if c.BaseURL != "" {
+		apiBase = c.BaseURL
+	}
+
+	for _, r := range reqs {
+		buf.WriteString("--" + boundary + "\r\n")
+		buf.WriteString("Content-Type: application/http\r\n")
+		buf.WriteString(fmt.Sprintf("Content-ID: <%s>\r\n", r.ID))
+		buf.WriteString("\r\n")
+
+		reqPath := apiBase + r.Path
+		if len(r.Query) > 0 {
+			reqPath += "?" + r.Query.Encode()
+		}
+		buf.WriteString(fmt.Sprintf("GET %s\r\n", reqPath))
+		buf.WriteString("\r\n")
+	}
+	buf.WriteString("--" + boundary + "--\r\n")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.batchURL(), &buf)
+	if err != nil {
+		return nil, errors.Wrap(err, "create batch request")
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "multipart/mixed; boundary="+boundary)
+
+	start := time.Now()
+	resp, err := http.DefaultClient.Do(req)
+	latency := time.Since(start)
+	if err != nil {
+		slog.Error("gmail batch request failed", "count", len(reqs), "latency", latency.Round(time.Millisecond).String(), "error", err)
+		return nil, errors.Wrap(err, "batch request")
+	}
+	defer resp.Body.Close()
+
+	slog.Info("gmail batch request", "count", len(reqs), "status", resp.StatusCode, "latency", latency.Round(time.Millisecond).String())
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, errors.Newf("gmail batch api %d: %s", resp.StatusCode, string(body))
+	}
+
+	return parseBatchResponse(resp)
+}
+
+func parseBatchResponse(resp *http.Response) ([]batchResponse, error) {
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "multipart/mixed") {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, errors.Newf("unexpected batch response content-type: %s, body: %s", ct, string(body))
+	}
+
+	idx := strings.Index(ct, "boundary=")
+	if idx < 0 {
+		return nil, errors.New("no boundary in batch response")
+	}
+	boundary := ct[idx+len("boundary="):]
+	boundary = strings.Trim(boundary, `"`)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read batch response")
+	}
+
+	parts := splitMultipartBody(string(body), boundary)
+	var results []batchResponse
+	for _, part := range parts {
+		br := parseSingleBatchPart(part)
+		results = append(results, br)
+	}
+	return results, nil
+}
+
+func splitMultipartBody(body, boundary string) []string {
+	delim := "--" + boundary
+	end := delim + "--"
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	parts := strings.Split(body, delim)
+
+	var result []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" || p == "--" || strings.HasPrefix(p, "--") {
+			continue
+		}
+		if strings.TrimSpace(strings.TrimPrefix(p, "\n")) == "" {
+			continue
+		}
+		p = strings.TrimSuffix(p, end)
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+func parseSingleBatchPart(part string) batchResponse {
+	var br batchResponse
+
+	headerEnd := strings.Index(part, "\n\n")
+	if headerEnd < 0 {
+		br.Err = errors.Newf("malformed batch part: no header separator")
+		return br
+	}
+
+	outerHeaders := part[:headerEnd]
+	innerPart := part[headerEnd+2:]
+
+	for _, line := range strings.Split(outerHeaders, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(line), "content-id:") {
+			id := strings.TrimSpace(line[len("content-id:"):])
+			id = strings.Trim(id, "<>")
+			id = strings.TrimPrefix(id, "response-")
+			br.ID = id
+		}
+	}
+
+	statusLine := ""
+	bodyStart := strings.Index(innerPart, "\n")
+	if bodyStart >= 0 {
+		statusLine = strings.TrimSpace(innerPart[:bodyStart])
+		innerPart = innerPart[bodyStart+1:]
+	}
+
+	if strings.Contains(statusLine, "200") {
+		br.Status = 200
+	} else if strings.Contains(statusLine, "404") {
+		br.Status = 404
+	} else if strings.Contains(statusLine, "400") {
+		br.Status = 400
+	} else {
+		for code := 400; code < 600; code++ {
+			if strings.Contains(statusLine, fmt.Sprintf("%d", code)) {
+				br.Status = code
+				break
+			}
+		}
+		if br.Status == 0 {
+			br.Status = 200
+		}
+	}
+
+	jsonStart := strings.Index(innerPart, "{")
+	if jsonStart >= 0 {
+		jsonBody := innerPart[jsonStart:]
+		if br.Status >= 400 {
+			br.Err = errors.Newf("gmail api %d: %s", br.Status, strings.TrimSpace(jsonBody))
+		} else {
+			br.Data = json.RawMessage(jsonBody)
+		}
+	} else if br.Status >= 400 {
+		br.Err = errors.Newf("gmail api %d: %s", br.Status, strings.TrimSpace(innerPart))
+	}
+
+	return br
+}
+
 // MIME/body helpers
 
 func extractHeaders(part *MessagePart, names []string) map[string]string {
@@ -409,13 +593,12 @@ func isLowValueText(plainLower, htmlLower string) bool {
 			return true
 		}
 	}
-	const minDiff = 50
 	for _, marker := range lowValueFooterMarkers {
-		if strings.Contains(plainLower, marker) && len(htmlLower) >= len(plainLower)+minDiff {
+		if strings.Contains(plainLower, marker) && len(htmlLower) >= len(plainLower)+lowValueHTMLDiffMin {
 			return true
 		}
 	}
-	if len(htmlLower) >= len(plainLower)+minDiff && strings.HasSuffix(htmlLower, plainLower) {
+	if len(htmlLower) >= len(plainLower)+lowValueHTMLDiffMin && strings.HasSuffix(htmlLower, plainLower) {
 		return true
 	}
 	return false

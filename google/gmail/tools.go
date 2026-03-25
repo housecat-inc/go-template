@@ -5,12 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net/textproto"
 	"net/url"
 	"strings"
-	"sync"
+	"time"
 	"unicode"
 
 	"github.com/cockroachdb/errors"
@@ -108,55 +109,85 @@ func (c *Client) GetMessagesContentBatch(ctx context.Context, in GetMessagesCont
 	}
 
 	type result struct {
-		idx int
-		out string
-		err error
+		data json.RawMessage
+		err  error
 	}
-	results := make([]result, len(in.MessageIDs))
-
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 10)
-
-	for i, mid := range in.MessageIDs {
-		wg.Add(1)
-		go func(idx int, messageID string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			q := url.Values{"format": {in.Format}}
-			if in.Format == "metadata" {
-				q.Set("metadataHeaders", strings.Join(metadataHeaders, ","))
-			}
-			data, err := c.get(ctx, "/messages/"+messageID, q)
-			if err != nil {
-				results[idx] = result{idx: idx, err: err}
-				return
-			}
-			var msg Message
-			if err := json.Unmarshal(data, &msg); err != nil {
-				results[idx] = result{idx: idx, err: err}
-				return
-			}
-			if in.Format == "metadata" {
-				results[idx] = result{idx: idx, out: formatMessageMetadata(&msg)}
-			} else {
-				results[idx] = result{idx: idx, out: formatMessageContent(&msg)}
-			}
-		}(i, mid)
+	results := make(map[string]*result, len(in.MessageIDs))
+	for _, mid := range in.MessageIDs {
+		results[mid] = &result{}
 	}
-	wg.Wait()
+
+	var reqs []batchRequest
+	for _, mid := range in.MessageIDs {
+		q := url.Values{"format": {in.Format}}
+		if in.Format == "metadata" {
+			for _, h := range metadataHeaders {
+				q.Add("metadataHeaders", h)
+			}
+		}
+		reqs = append(reqs, batchRequest{ID: mid, Path: "/messages/" + mid, Query: q})
+	}
+
+	batchResults, batchErr := c.batch(ctx, reqs)
+	if batchErr != nil {
+		slog.Warn("batch API failed, falling back to sequential", "error", batchErr)
+		for _, mid := range in.MessageIDs {
+			data, err := c.getMessageWithRetry(ctx, mid, in.Format, 3)
+			results[mid] = &result{data: data, err: err}
+			time.Sleep(time.Duration(requestDelay) * time.Millisecond)
+		}
+	} else {
+		for _, br := range batchResults {
+			if r, ok := results[br.ID]; ok {
+				r.data = br.Data
+				r.err = br.Err
+			}
+		}
+	}
 
 	var parts []string
-	for _, r := range results {
+	for _, mid := range in.MessageIDs {
+		r := results[mid]
 		if r.err != nil {
-			parts = append(parts, fmt.Sprintf("Message %s: %s", in.MessageIDs[r.idx], r.err))
+			parts = append(parts, fmt.Sprintf("Message %s: %s", mid, r.err))
+			continue
+		}
+		var msg Message
+		if err := json.Unmarshal(r.data, &msg); err != nil {
+			parts = append(parts, fmt.Sprintf("Message %s: %s", mid, err))
+			continue
+		}
+		if in.Format == "metadata" {
+			parts = append(parts, formatMessageMetadata(&msg))
 		} else {
-			parts = append(parts, r.out)
+			parts = append(parts, formatMessageContent(&msg))
 		}
 	}
 
 	return fmt.Sprintf("Retrieved %d messages:\n\n%s", len(in.MessageIDs), strings.Join(parts, "\n---\n\n")), nil
+}
+
+func (c *Client) getMessageWithRetry(ctx context.Context, messageID, format string, maxRetries int) (json.RawMessage, error) {
+	q := url.Values{"format": {format}}
+	if format == "metadata" {
+		for _, h := range metadataHeaders {
+			q.Add("metadataHeaders", h)
+		}
+	}
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		data, err := c.get(ctx, "/messages/"+messageID, q)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+		if attempt < maxRetries-1 {
+			delay := time.Duration(1<<uint(attempt)) * time.Second
+			slog.Warn("message fetch retry", "messageID", messageID, "attempt", attempt+1, "delay", delay)
+			time.Sleep(delay)
+		}
+	}
+	return nil, lastErr
 }
 
 // 4. GetAttachmentContent
@@ -225,48 +256,71 @@ func (c *Client) GetThreadsContentBatch(ctx context.Context, in GetThreadsConten
 	}
 
 	type result struct {
-		idx int
-		out string
-		err error
+		data json.RawMessage
+		err  error
 	}
-	results := make([]result, len(in.ThreadIDs))
-
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 10)
-
-	for i, tid := range in.ThreadIDs {
-		wg.Add(1)
-		go func(idx int, threadID string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			q := url.Values{"format": {"full"}}
-			data, err := c.get(ctx, "/threads/"+threadID, q)
-			if err != nil {
-				results[idx] = result{idx: idx, err: err}
-				return
-			}
-			var thread Thread
-			if err := json.Unmarshal(data, &thread); err != nil {
-				results[idx] = result{idx: idx, err: err}
-				return
-			}
-			results[idx] = result{idx: idx, out: formatThreadContent(&thread)}
-		}(i, tid)
+	results := make(map[string]*result, len(in.ThreadIDs))
+	for _, tid := range in.ThreadIDs {
+		results[tid] = &result{}
 	}
-	wg.Wait()
 
-	var parts []string
-	for _, r := range results {
-		if r.err != nil {
-			parts = append(parts, fmt.Sprintf("Thread %s: %s", in.ThreadIDs[r.idx], r.err))
-		} else {
-			parts = append(parts, r.out)
+	var reqs []batchRequest
+	for _, tid := range in.ThreadIDs {
+		q := url.Values{"format": {"full"}}
+		reqs = append(reqs, batchRequest{ID: tid, Path: "/threads/" + tid, Query: q})
+	}
+
+	batchResults, batchErr := c.batch(ctx, reqs)
+	if batchErr != nil {
+		slog.Warn("batch API failed, falling back to sequential", "error", batchErr)
+		for _, tid := range in.ThreadIDs {
+			data, err := c.getThreadWithRetry(ctx, tid, 3)
+			results[tid] = &result{data: data, err: err}
+			time.Sleep(time.Duration(requestDelay) * time.Millisecond)
+		}
+	} else {
+		for _, br := range batchResults {
+			if r, ok := results[br.ID]; ok {
+				r.data = br.Data
+				r.err = br.Err
+			}
 		}
 	}
 
+	var parts []string
+	for _, tid := range in.ThreadIDs {
+		r := results[tid]
+		if r.err != nil {
+			parts = append(parts, fmt.Sprintf("Thread %s: %s", tid, r.err))
+			continue
+		}
+		var thread Thread
+		if err := json.Unmarshal(r.data, &thread); err != nil {
+			parts = append(parts, fmt.Sprintf("Thread %s: %s", tid, err))
+			continue
+		}
+		parts = append(parts, formatThreadContent(&thread))
+	}
+
 	return fmt.Sprintf("Retrieved %d threads:\n\n%s", len(in.ThreadIDs), strings.Join(parts, "\n---\n\n")), nil
+}
+
+func (c *Client) getThreadWithRetry(ctx context.Context, threadID string, maxRetries int) (json.RawMessage, error) {
+	q := url.Values{"format": {"full"}}
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		data, err := c.get(ctx, "/threads/"+threadID, q)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+		if attempt < maxRetries-1 {
+			delay := time.Duration(1<<uint(attempt)) * time.Second
+			slog.Warn("thread fetch retry", "threadID", threadID, "attempt", attempt+1, "delay", delay)
+			time.Sleep(delay)
+		}
+	}
+	return nil, lastErr
 }
 
 // 7. ListLabels

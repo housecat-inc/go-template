@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -47,6 +49,70 @@ func newMockGmailServer() *mockGmailServer {
 		}},
 	}
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("/batch", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		bodyStr := string(body)
+
+		boundary := "batch_response"
+		w.Header().Set("Content-Type", "multipart/mixed; boundary="+boundary)
+
+		var resp strings.Builder
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		lines := strings.Split(bodyStr, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "GET ") {
+				continue
+			}
+			reqURL := strings.TrimPrefix(line, "GET ")
+			reqURL = strings.TrimSpace(reqURL)
+
+			parsedURL, _ := url.Parse(reqURL)
+			path := parsedURL.Path
+
+			var itemData json.RawMessage
+			var found bool
+			var itemID string
+
+			if strings.Contains(path, "/messages/") {
+				msgID := path[strings.LastIndex(path, "/messages/")+len("/messages/"):]
+				itemID = msgID
+				itemData, found = m.messages[msgID]
+			} else if strings.Contains(path, "/threads/") {
+				threadID := path[strings.LastIndex(path, "/threads/")+len("/threads/"):]
+				itemID = threadID
+				itemData, found = m.threads[threadID]
+			}
+
+			resp.WriteString("--" + boundary + "\r\n")
+			resp.WriteString("Content-Type: application/http\r\n")
+			resp.WriteString(fmt.Sprintf("Content-ID: <response-%s>\r\n", itemID))
+			resp.WriteString("\r\n")
+
+			if found {
+				resp.WriteString("HTTP/1.1 200 OK\r\n")
+				resp.WriteString("Content-Type: application/json\r\n")
+				resp.WriteString("\r\n")
+				resp.Write(itemData)
+				resp.WriteString("\r\n")
+			} else {
+				resp.WriteString("HTTP/1.1 404 Not Found\r\n")
+				resp.WriteString("Content-Type: application/json\r\n")
+				resp.WriteString("\r\n")
+				resp.WriteString(fmt.Sprintf(`{"error":{"code":404,"message":"%s not found"}}`, itemID))
+				resp.WriteString("\r\n")
+			}
+		}
+		resp.WriteString("--" + boundary + "--\r\n")
+		w.Write([]byte(resp.String()))
+	})
 
 	mux.HandleFunc("/messages/batchModify", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -453,6 +519,39 @@ func TestGetMessagesContentBatchMetadata(t *testing.T) {
 	a.NoError(err)
 	a.Contains(result, "Subject: Test Subject")
 	a.Contains(result, "From: sender@example.com")
+}
+
+func TestGetMessagesContentBatchFallback(t *testing.T) {
+	a := assert.New(t)
+
+	m := newMockGmailServer()
+	m.messages["msg-1"] = fixtureMessage("msg-1")
+
+	noBatchMux := http.NewServeMux()
+	noBatchMux.HandleFunc("/batch", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "batch disabled", http.StatusInternalServerError)
+	})
+	noBatchMux.HandleFunc("/messages/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/messages/")
+		m.mu.Lock()
+		msg, ok := m.messages[id]
+		m.mu.Unlock()
+		if !ok {
+			http.Error(w, `{"error":{"code":404,"message":"not found"}}`, http.StatusNotFound)
+			return
+		}
+		w.Write(msg)
+	})
+	srv := httptest.NewServer(noBatchMux)
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL, Token: "test-token"}
+	result, err := c.GetMessagesContentBatch(context.Background(), GetMessagesContentBatchIn{
+		MessageIDs: []string{"msg-1"},
+	})
+	a.NoError(err)
+	a.Contains(result, "Retrieved 1 messages")
+	a.Contains(result, "Test Subject")
 }
 
 func TestGetAttachmentContent(t *testing.T) {
