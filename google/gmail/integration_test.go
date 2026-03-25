@@ -149,15 +149,14 @@ func TestIntegrationListLabels(t *testing.T) {
 }
 
 func TestIntegrationListFilters(t *testing.T) {
-	// Filters require gmail.settings.basic scope which is not in our standard levels.
-	// This test documents that limitation; it will fail with 403 on read-only tokens.
+	// Requires gmail.settings.basic scope (not in standard read level).
 	c := integrationClient(t)
 
 	result, err := c.ListFilters(context.Background())
-	if err != nil {
-		t.Logf("ListFilters not available with current scopes (expected): %v", err)
+	if err != nil && strings.Contains(err.Error(), "403") {
 		t.Skip("gmail.settings.basic scope not available")
 	}
+	require.NoError(t, err)
 	t.Log(result)
 }
 

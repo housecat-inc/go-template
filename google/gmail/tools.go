@@ -374,6 +374,9 @@ func (c *Client) ListFilters(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "list filters")
 	}
+	if len(data) == 0 {
+		return "No filters found.", nil
+	}
 	var resp struct {
 		Filter []Filter `json:"filter"`
 	}
