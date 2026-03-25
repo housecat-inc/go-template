@@ -16,6 +16,10 @@ WHERE id = ? AND archived_at IS NULL;
 SELECT * FROM oidc_clients
 WHERE client_id = ? AND archived_at IS NULL;
 
+-- name: GetOidcClientByName :one
+SELECT * FROM oidc_clients
+WHERE name = ? AND archived_at IS NULL;
+
 -- name: ListOidcClients :many
 SELECT * FROM oidc_clients
 WHERE archived_at IS NULL
@@ -30,6 +34,11 @@ WHERE id = ? AND archived_at IS NULL;
 UPDATE oidc_clients
 SET archived_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 WHERE id = ? AND archived_at IS NULL;
+
+-- name: TouchOidcClientByClientID :exec
+UPDATE oidc_clients
+SET updated_at = CURRENT_TIMESTAMP
+WHERE client_id = ? AND archived_at IS NULL;
 
 -- name: CountOidcClients :one
 SELECT COUNT(*) FROM oidc_clients

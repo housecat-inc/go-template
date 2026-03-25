@@ -328,11 +328,32 @@ func (s *Storage) Health(ctx context.Context) error {
 
 // CompleteAuthRequest marks an auth request as done after user authentication.
 func (s *Storage) CompleteAuthRequest(ctx context.Context, id, userID, email string) error {
-	return s.q().CompleteAuthRequest(ctx, dbgen.CompleteAuthRequestParams{
+	q := s.q()
+	err := q.CompleteAuthRequest(ctx, dbgen.CompleteAuthRequestParams{
 		ID:        id,
 		Subject:   userID,
 		UserEmail: email,
 	})
+	if err != nil {
+		return err
+	}
+
+	ar, err := q.GetAuthRequest(ctx, id)
+	if err != nil {
+		return nil
+	}
+
+	_ = q.TouchOidcClientByClientID(ctx, ar.ClientID)
+	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
+		ActorID:    userID,
+		ActorType:  "user",
+		Action:     "logged_in_client",
+		ObjectID:   ar.ClientID,
+		ObjectType: "client",
+		Metadata:   &email,
+	})
+
+	return nil
 }
 
 func (s *Storage) LookupEmail(ctx context.Context, userID, clientID string) string {

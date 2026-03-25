@@ -360,6 +360,15 @@ func (s *Server) HandleAdminDeleteVM(c echo.Context) error {
 
 	if s.DB != nil {
 		q := dbgen.New(s.DB)
+		if client, err := q.GetOidcClientByName(ctx, vmName); err == nil {
+			if err := q.ArchiveOidcClient(ctx, client.ID); err != nil {
+				slog.Error("archive client on vm delete", "vm", vmName, "client", client.ID, "error", err)
+			} else {
+				if err := q.DeleteClientAccessByClientID(ctx, client.ID); err != nil {
+					slog.Warn("delete client access on vm delete", "error", err)
+				}
+			}
+		}
 		_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 			ActorID:    subject,
 			ActorType:  "user",

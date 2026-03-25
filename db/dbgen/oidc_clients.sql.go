@@ -90,6 +90,35 @@ func (q *Queries) GetOidcClientByClientID(ctx context.Context, clientID string) 
 	return i, err
 }
 
+const getOidcClientByName = `-- name: GetOidcClientByName :one
+SELECT id, client_id, client_secret, name, redirect_uris, post_logout_redirect_uris, application_type, auth_method, response_types, grant_types, access_token_type, scopes, created_by, archived_at, created_at, updated_at FROM oidc_clients
+WHERE name = ? AND archived_at IS NULL
+`
+
+func (q *Queries) GetOidcClientByName(ctx context.Context, name string) (OidcClient, error) {
+	row := q.db.QueryRowContext(ctx, getOidcClientByName, name)
+	var i OidcClient
+	err := row.Scan(
+		&i.ID,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.Name,
+		&i.RedirectUris,
+		&i.PostLogoutRedirectUris,
+		&i.ApplicationType,
+		&i.AuthMethod,
+		&i.ResponseTypes,
+		&i.GrantTypes,
+		&i.AccessTokenType,
+		&i.Scopes,
+		&i.CreatedBy,
+		&i.ArchivedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertOidcClient = `-- name: InsertOidcClient :one
 INSERT INTO oidc_clients (client_id, client_secret, name, redirect_uris, scopes, created_by)
 VALUES (?, ?, ?, ?, ?, ?)
@@ -230,6 +259,17 @@ func (q *Queries) ListOidcClients(ctx context.Context) ([]OidcClient, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const touchOidcClientByClientID = `-- name: TouchOidcClientByClientID :exec
+UPDATE oidc_clients
+SET updated_at = CURRENT_TIMESTAMP
+WHERE client_id = ? AND archived_at IS NULL
+`
+
+func (q *Queries) TouchOidcClientByClientID(ctx context.Context, clientID string) error {
+	_, err := q.db.ExecContext(ctx, touchOidcClientByClientID, clientID)
+	return err
 }
 
 const updateOidcClient = `-- name: UpdateOidcClient :exec
