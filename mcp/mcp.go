@@ -9,6 +9,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/google/uuid"
+	"github.com/housecat-inc/auth/google/gmail"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -116,7 +117,10 @@ var Services = []Service{
 		Name:        "Notion",
 		Description: "Pages and databases via Notion MCP",
 		Connections: []Connection{
-			{Level: "write", Description: "Read and write pages and databases", Scopes: []string{"openid", "email", "offline_access"}},
+			{Level: "read", Description: "Search and read pages and databases", Scopes: []string{"openid", "email", "offline_access"}},
+			{Level: "draft", Description: "Create private pages and databases", Scopes: []string{"openid", "email", "offline_access"}},
+			{Level: "write", Description: "Create, edit, and move in any teamspace", Scopes: []string{"openid", "email", "offline_access"}},
+			{Level: "archive", Description: "Trash data sources", Scopes: []string{"openid", "email", "offline_access"}},
 		},
 	},
 	{
@@ -373,6 +377,22 @@ func gmailClientFromRequest(ctx context.Context, req *gomcp.CallToolRequest, loo
 		return nil, err
 	}
 	return &GmailClient{Token: token}, nil
+}
+
+func newGmailClient(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, minLevel string) (*gmail.Client, error) {
+	token, err := tokenForService(ctx, req, lookup, "gmail", minLevel)
+	if err != nil {
+		return nil, err
+	}
+	return &gmail.Client{Token: token}, nil
+}
+
+func strResult(s string) (*gomcp.CallToolResult, any, error) {
+	return &gomcp.CallToolResult{
+		Content: []gomcp.Content{
+			&gomcp.TextContent{Text: s},
+		},
+	}, nil, nil
 }
 
 func gsheetsClientFromRequest(ctx context.Context, req *gomcp.CallToolRequest, lookup TokenLookup, minLevel string) (*GSheetsClient, error) {
@@ -1223,110 +1243,137 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		return result, nil, err
 	})
 
-	// Gmail tools
+	// Gmail tools (backed by google/gmail package)
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_get_profile",
 		Description: "Get the current Gmail user's profile (email address, history ID, message/thread counts). Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct{}) (*gomcp.CallToolResult, any, error) {
-		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		c, err := newGmailClient(ctx, req, lookup, "read")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.GetProfile(ctx)
+		out, err := c.GetProfile(ctx)
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_search_messages",
 		Description: "Search Gmail messages. Uses Gmail search syntax (e.g. 'from:user@example.com subject:hello is:unread'). Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		IncludeSpamTrash bool   `json:"include_spam_trash,omitempty" jsonschema:"Include spam and trash in results (default false)"`
-		MaxResults       int    `json:"max_results,omitempty" jsonschema:"Max messages to return (default 20, max 500)"`
-		PageToken        string `json:"page_token,omitempty" jsonschema:"Pagination token from previous response"`
-		Query            string `json:"query,omitempty" jsonschema:"Gmail search query (e.g. 'from:user@example.com subject:hello is:unread')"`
+		PageSize  int    `json:"page_size,omitempty" jsonschema:"Max messages to return (default 10)"`
+		PageToken string `json:"page_token,omitempty" jsonschema:"Pagination token from previous response"`
+		Query     string `json:"query,omitempty" jsonschema:"Gmail search query (e.g. 'from:user@example.com subject:hello is:unread')"`
 	}) (*gomcp.CallToolResult, any, error) {
-		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		c, err := newGmailClient(ctx, req, lookup, "read")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.SearchMessages(ctx, input.Query, input.MaxResults, input.PageToken, input.IncludeSpamTrash)
+		out, err := c.SearchMessages(ctx, gmail.SearchMessagesIn{
+			PageSize:  input.PageSize,
+			PageToken: input.PageToken,
+			Query:     input.Query,
+		})
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "gmail_read_message",
-		Description: "Read the full content of a Gmail message by ID. Returns attachment metadata (attachment_id, filename, mime_type, size) when present — use gmail_get_attachment to download content. Requires Gmail read connection.",
+		Name:        "gmail_get_message_content",
+		Description: "Read the full content of a Gmail message by ID. Returns attachment metadata when present — use gmail_get_attachment to download content. Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		MessageID string `json:"message_id" jsonschema:"Gmail message ID"`
 	}) (*gomcp.CallToolResult, any, error) {
-		if input.MessageID == "" {
-			return errResult("messageId is required")
-		}
-		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		c, err := newGmailClient(ctx, req, lookup, "read")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.ReadMessage(ctx, input.MessageID)
+		out, err := c.GetMessageContent(ctx, gmail.GetMessageContentIn{MessageID: input.MessageID})
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "gmail_get_attachment",
+		Name:        "gmail_get_messages_content_batch",
+		Description: "Retrieve content of multiple Gmail messages in batch (max 25). Uses Gmail batch API. Requires Gmail read connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		Format     string   `json:"format,omitempty" jsonschema:"'full' (default) or 'metadata'"`
+		MessageIDs []string `json:"message_ids" jsonschema:"List of Gmail message IDs (max 25)"`
+	}) (*gomcp.CallToolResult, any, error) {
+		c, err := newGmailClient(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := c.GetMessagesContentBatch(ctx, gmail.GetMessagesContentBatchIn{
+			Format:     input.Format,
+			MessageIDs: input.MessageIDs,
+		})
+		if err != nil {
+			return errResult(err.Error())
+		}
+		return strResult(out)
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_get_attachment_content",
 		Description: "Download an attachment from a Gmail message. Use gmail_read_message first to get the attachment_id. Returns base64url-encoded content. Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		AttachmentID string `json:"attachment_id" jsonschema:"Attachment ID from gmail_read_message response"`
 		MessageID    string `json:"message_id" jsonschema:"Gmail message ID containing the attachment"`
 	}) (*gomcp.CallToolResult, any, error) {
-		if input.MessageID == "" {
-			return errResult("message_id is required")
-		}
-		if input.AttachmentID == "" {
-			return errResult("attachment_id is required")
-		}
-		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		c, err := newGmailClient(ctx, req, lookup, "read")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.GetAttachment(ctx, input.MessageID, input.AttachmentID)
+		out, err := c.GetAttachmentContent(ctx, gmail.GetAttachmentContentIn{
+			AttachmentID: input.AttachmentID,
+			MessageID:    input.MessageID,
+		})
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "gmail_read_thread",
+		Name:        "gmail_get_thread_content",
 		Description: "Get all messages in a Gmail thread by thread ID. Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		ThreadID string `json:"thread_id" jsonschema:"Gmail thread ID"`
 	}) (*gomcp.CallToolResult, any, error) {
-		if input.ThreadID == "" {
-			return errResult("threadId is required")
-		}
-		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		c, err := newGmailClient(ctx, req, lookup, "read")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.GetThread(ctx, input.ThreadID)
+		out, err := c.GetThreadContent(ctx, gmail.GetThreadContentIn{ThreadID: input.ThreadID})
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_get_threads_content_batch",
+		Description: "Retrieve content of multiple Gmail threads in batch (max 25). Uses Gmail batch API. Requires Gmail read connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		ThreadIDs []string `json:"thread_ids" jsonschema:"List of Gmail thread IDs (max 25)"`
+	}) (*gomcp.CallToolResult, any, error) {
+		c, err := newGmailClient(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := c.GetThreadsContentBatch(ctx, gmail.GetThreadsContentBatchIn{ThreadIDs: input.ThreadIDs})
+		if err != nil {
+			return errResult(err.Error())
+		}
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -1336,85 +1383,55 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		MaxResults int    `json:"max_results,omitempty" jsonschema:"Max drafts to return (default 20)"`
 		PageToken  string `json:"page_token,omitempty" jsonschema:"Pagination token from previous response"`
 	}) (*gomcp.CallToolResult, any, error) {
-		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		c, err := newGmailClient(ctx, req, lookup, "read")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.ListDrafts(ctx, input.MaxResults, input.PageToken)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		result, err := textResult(out)
-		return result, nil, err
-	})
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "gmail_create_draft",
-		Description: "Create a draft email for review before sending. Supports file attachments via base64-encoded content. Requires Gmail draft connection.",
-	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Attachments []Attachment `json:"attachments,omitempty" jsonschema:"File attachments. Each needs filename and base64-encoded content, optionally mime_type."`
-		Bcc         string       `json:"bcc,omitempty" jsonschema:"BCC recipient email address"`
-		Body        string       `json:"body" jsonschema:"Email body text"`
-		Cc          string       `json:"cc,omitempty" jsonschema:"CC recipient email address"`
-		ContentType string       `json:"content_type,omitempty" jsonschema:"MIME type for body (default text/plain)"`
-		Subject     string       `json:"subject,omitempty" jsonschema:"Email subject line (required unless threadId is provided)"`
-		ThreadID    string       `json:"thread_id,omitempty" jsonschema:"Thread ID to associate draft with"`
-		To          string       `json:"to" jsonschema:"Recipient email address"`
-	}) (*gomcp.CallToolResult, any, error) {
-		if input.To == "" {
-			return errResult("to is required")
-		}
-		if input.Body == "" {
-			return errResult("body is required")
-		}
-		if input.Subject == "" && input.ThreadID == "" {
-			return errResult("subject is required unless threadId is provided")
-		}
-		client, err := gmailClientFromRequest(ctx, req, lookup, "draft")
-		if err != nil {
-			return errResult(err.Error())
-		}
-		out, err := client.CreateDraft(ctx, CreateDraftIn{
-			Attachments: input.Attachments,
-			Bcc:         input.Bcc,
-			Body:        input.Body,
-			Cc:          input.Cc,
-			ContentType: input.ContentType,
-			Footer:      brandingFooter(ctx, req, branding, baseURL, "Sent", "html"),
-			Subject:     input.Subject,
-			ThreadID:    input.ThreadID,
-			To:          input.To,
+		out, err := c.ListDrafts(ctx, gmail.ListDraftsIn{
+			MaxResults: input.MaxResults,
+			PageToken:  input.PageToken,
 		})
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "gmail_create_label",
-		Description: "Create one or more Gmail labels. Requires Gmail write connection.",
+		Name:        "gmail_draft_message",
+		Description: "Create a draft email. Supports attachments, signature injection, and quoted replies. Requires Gmail draft connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Names []string `json:"names" jsonschema:"Label names to create"`
+		Attachments      []gmail.AttachmentInput `json:"attachments,omitempty" jsonschema:"File attachments. Each needs filename and base64-encoded content, optionally mime_type."`
+		Bcc              string                  `json:"bcc,omitempty" jsonschema:"BCC recipient email address"`
+		Body             string                  `json:"body" jsonschema:"Email body text"`
+		BodyFormat       string                  `json:"body_format,omitempty" jsonschema:"'plain' (default) or 'html'"`
+		Cc               string                  `json:"cc,omitempty" jsonschema:"CC recipient email address"`
+		IncludeSignature bool                    `json:"include_signature,omitempty" jsonschema:"Append Gmail signature (default false)"`
+		QuoteOriginal    bool                    `json:"quote_original,omitempty" jsonschema:"Include original message as quoted reply (requires thread_id)"`
+		Subject          string                  `json:"subject,omitempty" jsonschema:"Email subject line"`
+		ThreadID         string                  `json:"thread_id,omitempty" jsonschema:"Thread ID to associate draft with"`
+		To               string                  `json:"to,omitempty" jsonschema:"Recipient email address"`
 	}) (*gomcp.CallToolResult, any, error) {
-		if len(input.Names) == 0 {
-			return errResult("names is required")
-		}
-		client, err := gmailClientFromRequest(ctx, req, lookup, "write")
+		c, err := newGmailClient(ctx, req, lookup, "draft")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		var created []CreateLabelOut
-		for _, name := range input.Names {
-			label, err := client.CreateLabel(ctx, name)
-			if err != nil {
-				return errResult(err.Error())
-			}
-			created = append(created, label)
+		out, err := c.DraftMessage(ctx, gmail.DraftMessageIn{
+			Attachments:      input.Attachments,
+			Bcc:              input.Bcc,
+			Body:             input.Body,
+			BodyFormat:       input.BodyFormat,
+			Cc:               input.Cc,
+			IncludeSignature: input.IncludeSignature,
+			QuoteOriginal:    input.QuoteOriginal,
+			Subject:          input.Subject,
+			ThreadID:         input.ThreadID,
+			To:               input.To,
+		})
+		if err != nil {
+			return errResult(err.Error())
 		}
-		result, err := textResult(created)
-		return result, nil, err
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -1423,86 +1440,143 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		DraftID string `json:"draft_id" jsonschema:"Gmail draft ID to delete"`
 	}) (*gomcp.CallToolResult, any, error) {
-		if input.DraftID == "" {
-			return errResult("draft_id is required")
-		}
-		client, err := gmailClientFromRequest(ctx, req, lookup, "draft")
+		c, err := newGmailClient(ctx, req, lookup, "draft")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.DeleteDraft(ctx, input.DraftID)
+		out, err := c.DeleteDraft(ctx, input.DraftID)
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_list_labels",
 		Description: "List all Gmail labels (inbox, sent, custom labels, etc.). Requires Gmail read connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct{}) (*gomcp.CallToolResult, any, error) {
-		client, err := gmailClientFromRequest(ctx, req, lookup, "read")
+		c, err := newGmailClient(ctx, req, lookup, "read")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.ListLabels(ctx)
+		out, err := c.ListLabels(ctx)
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_manage_label",
+		Description: "Create, update, or delete a Gmail label. Requires Gmail write connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		Action                string `json:"action" jsonschema:"'create', 'update', or 'delete'"`
+		LabelID               string `json:"label_id,omitempty" jsonschema:"Label ID (required for update/delete)"`
+		LabelListVisibility   string `json:"label_list_visibility,omitempty" jsonschema:"'labelShow' or 'labelHide'"`
+		MessageListVisibility string `json:"message_list_visibility,omitempty" jsonschema:"'show' or 'hide'"`
+		Name                  string `json:"name,omitempty" jsonschema:"Label name (required for create)"`
+	}) (*gomcp.CallToolResult, any, error) {
+		c, err := newGmailClient(ctx, req, lookup, "write")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := c.ManageLabel(ctx, gmail.ManageLabelIn{
+			Action:                input.Action,
+			LabelID:               input.LabelID,
+			LabelListVisibility:   input.LabelListVisibility,
+			MessageListVisibility: input.MessageListVisibility,
+			Name:                  input.Name,
+		})
+		if err != nil {
+			return errResult(err.Error())
+		}
+		return strResult(out)
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_list_filters",
+		Description: "List all Gmail filters. Requires Gmail read connection with settings.basic scope.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct{}) (*gomcp.CallToolResult, any, error) {
+		c, err := newGmailClient(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := c.ListFilters(ctx)
+		if err != nil {
+			return errResult(err.Error())
+		}
+		return strResult(out)
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_manage_filter",
+		Description: "Create or delete a Gmail filter. Requires Gmail read connection with settings.basic scope.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		Action       string               `json:"action" jsonschema:"'create' or 'delete'"`
+		Criteria     *gmail.FilterCriteria `json:"criteria,omitempty" jsonschema:"Filter criteria (required for create)"`
+		FilterAction *gmail.FilterAction   `json:"filter_action,omitempty" jsonschema:"Filter action (required for create)"`
+		FilterID     string                `json:"filter_id,omitempty" jsonschema:"Filter ID (required for delete)"`
+	}) (*gomcp.CallToolResult, any, error) {
+		c, err := newGmailClient(ctx, req, lookup, "read")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := c.ManageFilter(ctx, gmail.ManageFilterIn{
+			Action:       input.Action,
+			Criteria:     input.Criteria,
+			FilterAction: input.FilterAction,
+			FilterID:     input.FilterID,
+		})
+		if err != nil {
+			return errResult(err.Error())
+		}
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_send_message",
-		Description: "Send an email via Gmail. Either send an existing draft by draftId, or compose a new message with to+body. Supports file attachments via base64-encoded content. Requires Gmail write connection.",
+		Description: "Send an email via Gmail. Either send an existing draft by draft_id, or compose a new message with to+body. Supports file attachments. Requires Gmail write connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
-		Attachments []Attachment `json:"attachments,omitempty" jsonschema:"File attachments. Each needs filename and base64-encoded content, optionally mime_type."`
-		Bcc         string       `json:"bcc,omitempty" jsonschema:"BCC recipients, comma-separated"`
-		Body        string       `json:"body,omitempty" jsonschema:"Email body content (required without draftId)"`
-		Cc          string       `json:"cc,omitempty" jsonschema:"CC recipients, comma-separated"`
-		ContentType string       `json:"content_type,omitempty" jsonschema:"text/plain or text/html (default text/plain)"`
-		DraftID     string       `json:"draft_id,omitempty" jsonschema:"Draft ID to send (provide this OR to+body)"`
-		Subject     string       `json:"subject,omitempty" jsonschema:"Subject line (required without draftId unless threadId provided)"`
-		ThreadID    string       `json:"thread_id,omitempty" jsonschema:"Thread ID to send as a reply"`
-		To          string       `json:"to,omitempty" jsonschema:"Recipient(s), comma-separated (required without draftId)"`
+		Attachments []gmail.AttachmentInput `json:"attachments,omitempty" jsonschema:"File attachments. Each needs filename and base64-encoded content, optionally mime_type."`
+		Bcc         string                  `json:"bcc,omitempty" jsonschema:"BCC recipients, comma-separated"`
+		Body        string                  `json:"body,omitempty" jsonschema:"Email body content (required without draft_id)"`
+		BodyFormat  string                  `json:"body_format,omitempty" jsonschema:"'plain' (default) or 'html'"`
+		Cc          string                  `json:"cc,omitempty" jsonschema:"CC recipients, comma-separated"`
+		DraftID     string                  `json:"draft_id,omitempty" jsonschema:"Draft ID to send (provide this OR to+body)"`
+		Subject     string                  `json:"subject,omitempty" jsonschema:"Subject line"`
+		ThreadID    string                  `json:"thread_id,omitempty" jsonschema:"Thread ID to send as a reply"`
+		To          string                  `json:"to,omitempty" jsonschema:"Recipient(s), comma-separated"`
 	}) (*gomcp.CallToolResult, any, error) {
 		if input.DraftID != "" {
 			if input.To != "" || input.Body != "" {
-				return errResult("provide draftId OR to+body, not both")
+				return errResult("provide draft_id OR to+body, not both")
 			}
-			client, err := gmailClientFromRequest(ctx, req, lookup, "write")
+			c, err := newGmailClient(ctx, req, lookup, "write")
 			if err != nil {
 				return errResult(err.Error())
 			}
-			out, err := client.SendDraft(ctx, input.DraftID)
+			out, err := c.SendDraft(ctx, input.DraftID)
 			if err != nil {
 				return errResult(err.Error())
 			}
-			result, err := textResult(out)
-			return result, nil, err
+			return strResult(out)
 		}
 		if input.To == "" {
-			return errResult("to is required when draftId is not provided")
+			return errResult("to is required when draft_id is not provided")
 		}
 		if input.Body == "" {
-			return errResult("body is required when draftId is not provided")
+			return errResult("body is required when draft_id is not provided")
 		}
-		if input.Subject == "" && input.ThreadID == "" {
-			return errResult("subject is required unless threadId is provided")
-		}
-		client, err := gmailClientFromRequest(ctx, req, lookup, "write")
+		c, err := newGmailClient(ctx, req, lookup, "write")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.SendMessage(ctx, SendMessageIn{
+		out, err := c.SendMessage(ctx, gmail.SendMessageIn{
 			Attachments: input.Attachments,
 			Bcc:         input.Bcc,
 			Body:        input.Body,
+			BodyFormat:  input.BodyFormat,
 			Cc:          input.Cc,
-			ContentType: input.ContentType,
-			Footer:      brandingFooter(ctx, req, branding, baseURL, "Sent", "html"),
 			Subject:     input.Subject,
 			ThreadID:    input.ThreadID,
 			To:          input.To,
@@ -1510,29 +1584,22 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "gmail_modify_labels",
+		Name:        "gmail_modify_message_labels",
 		Description: "Add or remove labels on a Gmail message. Use gmail_list_labels to find label IDs. Requires Gmail write connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		AddLabelIDs    []string `json:"add_label_ids,omitempty" jsonschema:"Label IDs to add"`
 		MessageID      string   `json:"message_id" jsonschema:"Gmail message ID"`
 		RemoveLabelIDs []string `json:"remove_label_ids,omitempty" jsonschema:"Label IDs to remove"`
 	}) (*gomcp.CallToolResult, any, error) {
-		if input.MessageID == "" {
-			return errResult("message_id is required")
-		}
-		if len(input.AddLabelIDs) == 0 && len(input.RemoveLabelIDs) == 0 {
-			return errResult("at least one of add_label_ids or remove_label_ids is required")
-		}
-		client, err := gmailClientFromRequest(ctx, req, lookup, "write")
+		c, err := newGmailClient(ctx, req, lookup, "write")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.ModifyLabels(ctx, ModifyLabelsIn{
+		out, err := c.ModifyMessageLabels(ctx, gmail.ModifyMessageLabelsIn{
 			AddLabelIDs:    input.AddLabelIDs,
 			MessageID:      input.MessageID,
 			RemoveLabelIDs: input.RemoveLabelIDs,
@@ -1540,29 +1607,47 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
+	})
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "gmail_batch_modify_message_labels",
+		Description: "Add or remove labels on multiple Gmail messages at once. Requires Gmail write connection.",
+	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
+		AddLabelIDs    []string `json:"add_label_ids,omitempty" jsonschema:"Label IDs to add"`
+		MessageIDs     []string `json:"message_ids" jsonschema:"Gmail message IDs"`
+		RemoveLabelIDs []string `json:"remove_label_ids,omitempty" jsonschema:"Label IDs to remove"`
+	}) (*gomcp.CallToolResult, any, error) {
+		c, err := newGmailClient(ctx, req, lookup, "write")
+		if err != nil {
+			return errResult(err.Error())
+		}
+		out, err := c.BatchModifyMessageLabels(ctx, gmail.BatchModifyMessageLabelsIn{
+			AddLabelIDs:    input.AddLabelIDs,
+			MessageIDs:     input.MessageIDs,
+			RemoveLabelIDs: input.RemoveLabelIDs,
+		})
+		if err != nil {
+			return errResult(err.Error())
+		}
+		return strResult(out)
 	})
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "gmail_trash_message",
-		Description: "Move an email to trash. Archive level trashes any email.",
+		Description: "Move an email to trash. Requires Gmail archive connection.",
 	}, func(ctx context.Context, req *gomcp.CallToolRequest, input struct {
 		MessageID string `json:"message_id" jsonschema:"Gmail message ID to trash"`
 	}) (*gomcp.CallToolResult, any, error) {
-		if input.MessageID == "" {
-			return errResult("message_id is required")
-		}
-		client, err := gmailClientFromRequest(ctx, req, lookup, "archive")
+		c, err := newGmailClient(ctx, req, lookup, "archive")
 		if err != nil {
 			return errResult(err.Error())
 		}
-		out, err := client.TrashMessage(ctx, input.MessageID)
+		out, err := c.TrashMessage(ctx, input.MessageID)
 		if err != nil {
 			return errResult(err.Error())
 		}
-		result, err := textResult(out)
-		return result, nil, err
+		return strResult(out)
 	})
 
 	// Google Sheets tools
@@ -1832,7 +1917,7 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		return result, nil, err
 	})
 
-	// Upstream MCP tools (Attio, Granola, Notion)
+	// Upstream MCP tools (Attio, Granola)
 	// Registered dynamically from tool definitions fetched at startup.
 
 	type mcpClientFunc func(ctx context.Context, req *gomcp.CallToolRequest) (interface {
@@ -1850,17 +1935,15 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 		}, error) {
 			return granolaClientFromRequest(ctx, req, lookup, "read")
 		},
-		"notion": func(ctx context.Context, req *gomcp.CallToolRequest) (interface {
-			CallTool(ctx context.Context, toolName string, arguments map[string]any) (json.RawMessage, error)
-		}, error) {
-			return notionClientFromRequest(ctx, req, lookup, "write")
-		},
 	}
 
 	for _, ut := range upstreamTools {
 		ut := ut // capture
 		clientFn, ok := serviceClients[ut.Service]
-		if !ok {
+		if !ok && ut.Service != "notion" {
+			continue
+		}
+		if ut.Service == "notion" {
 			continue
 		}
 		server.AddTool(&gomcp.Tool{
@@ -1886,6 +1969,119 @@ func NewServer(baseURL string, lookup TokenLookup, connLookup ConnectionsLookup,
 			}
 			if args == nil {
 				args = map[string]any{}
+			}
+			out, err := client.CallTool(ctx, ut.Name, args)
+			if err != nil {
+				return &gomcp.CallToolResult{
+					Content: []gomcp.Content{&gomcp.TextContent{Text: err.Error()}},
+					IsError: true,
+				}, nil
+			}
+			return &gomcp.CallToolResult{
+				Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}},
+			}, nil
+		})
+	}
+
+	// Notion tools — registered with per-tool level gating.
+
+	notionToolLevels := map[string]string{
+		"notion-fetch":        "read",
+		"notion-get-comments": "read",
+		"notion-get-teams":    "read",
+		"notion-get-users":    "read",
+		"notion-search":       "read",
+
+		"notion-create-database": "draft",
+		"notion-create-pages":    "draft",
+
+		"notion-create-comment":     "write",
+		"notion-duplicate-page":     "write",
+		"notion-move-pages":         "write",
+		"notion-update-data-source": "write",
+		"notion-update-page":        "write",
+	}
+
+	notionDraftParentGated := map[string]bool{
+		"notion-create-database": true,
+		"notion-create-pages":    true,
+	}
+
+	for _, ut := range upstreamTools {
+		ut := ut
+		if ut.Service != "notion" {
+			continue
+		}
+		minLevel, ok := notionToolLevels[ut.Name]
+		if !ok {
+			continue
+		}
+		server.AddTool(&gomcp.Tool{
+			Name:        ut.Name,
+			Description: ut.Description,
+			InputSchema: ut.InputSchema,
+		}, func(ctx context.Context, req *gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+			var args map[string]any
+			if req.Params.Arguments != nil {
+				if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+					return &gomcp.CallToolResult{
+						Content: []gomcp.Content{&gomcp.TextContent{Text: "invalid arguments: " + err.Error()}},
+						IsError: true,
+					}, nil
+				}
+			}
+			if args == nil {
+				args = map[string]any{}
+			}
+
+			level := minLevel
+
+			if ut.Name == "notion-update-data-source" {
+				if inTrash, _ := args["in_trash"].(bool); inTrash {
+					_, _, err := tokenForServiceDeleteLevel(ctx, req, lookup, "notion")
+					if err != nil {
+						return &gomcp.CallToolResult{
+							Content: []gomcp.Content{&gomcp.TextContent{Text: err.Error()}},
+							IsError: true,
+						}, nil
+					}
+				}
+			}
+
+			if notionDraftParentGated[ut.Name] {
+				_, hasParent := args["parent"]
+				token, resolvedLevel, err := tokenForServiceWithLevel(ctx, req, lookup, "notion", "draft")
+				if err != nil {
+					return &gomcp.CallToolResult{
+						Content: []gomcp.Content{&gomcp.TextContent{Text: err.Error()}},
+						IsError: true,
+					}, nil
+				}
+				if resolvedLevel == "draft" && hasParent {
+					return &gomcp.CallToolResult{
+						Content: []gomcp.Content{&gomcp.TextContent{Text: "notion draft level only allows creating private pages, visit the connections hub to enable write"}},
+						IsError: true,
+					}, nil
+				}
+				client := &NotionClient{Token: token}
+				out, err := client.CallTool(ctx, ut.Name, args)
+				if err != nil {
+					return &gomcp.CallToolResult{
+						Content: []gomcp.Content{&gomcp.TextContent{Text: err.Error()}},
+						IsError: true,
+					}, nil
+				}
+				return &gomcp.CallToolResult{
+					Content: []gomcp.Content{&gomcp.TextContent{Text: string(out)}},
+				}, nil
+			}
+
+			client, err := notionClientFromRequest(ctx, req, lookup, level)
+			if err != nil {
+				return &gomcp.CallToolResult{
+					Content: []gomcp.Content{&gomcp.TextContent{Text: err.Error()}},
+					IsError: true,
+				}, nil
 			}
 			out, err := client.CallTool(ctx, ut.Name, args)
 			if err != nil {

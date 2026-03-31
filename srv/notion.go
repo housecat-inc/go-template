@@ -71,6 +71,13 @@ func (s *Server) HandleNotionConnectEnable(c echo.Context) error {
 	ctx := r.Context()
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 
+	level := c.Param("level")
+	switch level {
+	case "archive", "draft", "read", "write":
+	default:
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid level")
+	}
+
 	callbackURL := s.notionCallbackURL(r)
 
 	reg, err := registerNotionClient(ctx, callbackURL)
@@ -91,6 +98,7 @@ func (s *Server) HandleNotionConnectEnable(c echo.Context) error {
 
 	stateData, err := json.Marshal(map[string]string{
 		"client_id": reg.ClientID,
+		"level":     level,
 		"state":     state,
 		"verifier":  verifier,
 	})
@@ -149,6 +157,7 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 
 	var saved struct {
 		ClientID string `json:"client_id"`
+		Level    string `json:"level"`
 		State    string `json:"state"`
 		Verifier string `json:"verifier"`
 	}
@@ -170,7 +179,7 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "missing authorization code")
 	}
 
-	if saved.ClientID == "" || saved.Verifier == "" {
+	if saved.ClientID == "" || saved.Level == "" || saved.Verifier == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid oauth state")
 	}
 
@@ -229,17 +238,17 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 		AccessToken:  tokenResp.AccessToken,
 		ClientID:     saved.ClientID,
 		ExpiresAt:    expiresAt,
-		Level:        "write",
+		Level:        saved.Level,
 		Provider:     "notion",
 		RefreshToken: tokenResp.RefreshToken,
 		Scopes:       "openid,email,offline_access",
 		Service:      "notion",
-		Subject:     subject,
+		Subject:      subject,
 	}); err != nil {
 		return errors.Wrap(err, "save notion token")
 	}
 
-	meta := userEmail + " connected Notion (write)"
+	meta := userEmail + " connected Notion (" + saved.Level + ")"
 	_ = q.InsertActivity(ctx, dbgen.InsertActivityParams{
 		ActorID:    subject,
 		ActorType:  "user",
@@ -249,6 +258,6 @@ func (s *Server) HandleNotionCallback(c echo.Context) error {
 		Metadata:   &meta,
 	})
 
-	slog.Info("notion connected", "user", userEmail)
+	slog.Info("notion connected", "user", userEmail, "level", saved.Level)
 	return c.Redirect(http.StatusFound, "/connect/notion?connected=1")
 }
